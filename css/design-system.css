@@ -1,0 +1,396 @@
+/* ====================================================================
+ * PrintGuard Pro · Design System — 清透浅玻璃拟态 (Light Frosted Glass)
+ * --------------------------------------------------------------------
+ * 设计语言：macOS Big Sur / iOS 质感 —— 浅色极光背景 + 白色磨砂玻璃浮层，
+ *           中央 CAD 画布保持深色以保证印前打样辨色准确性。
+ * 令牌全部以 CSS 自定义属性定义；组件类只使用 Tailwind utilities 不覆盖
+ * 的属性（backdrop-filter / box-shadow / 渐变 / 动画），冲突处才用 !important。
+ * ==================================================================== */
+
+:root {
+  color-scheme: light; /* 强制原生表单控件（select/input/滚动条）走浅色主题 */
+
+  /* ---- 玻璃材质令牌 ---- */
+  --glass-bg: rgba(255, 255, 255, 0.55);          /* 常规玻璃面板 */
+  --glass-bg-strong: rgba(255, 255, 255, 0.82);   /* 需更高可读性的面板（抽屉/模态） */
+  --glass-bg-soft: rgba(255, 255, 255, 0.38);     /* 轻浮层（pill/徽章） */
+  --glass-border: rgba(255, 255, 255, 0.65);      /* 玻璃亮边 */
+  --glass-border-soft: rgba(255, 255, 255, 0.45);
+  --glass-blur: 22px;
+  --glass-saturate: 160%;
+
+  /* ---- 阴影（冷调柔和彩影） ---- */
+  --shadow-glass: 0 8px 32px rgba(80, 96, 160, 0.14), 0 2px 8px rgba(80, 96, 160, 0.06);
+  --shadow-glass-lg: 0 24px 64px -12px rgba(80, 96, 160, 0.25), 0 4px 16px rgba(80, 96, 160, 0.08);
+  --shadow-glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.85); /* 顶部 1px 高光 */
+
+  /* ---- 文字 ---- */
+  --ink-1: #1e293b;   /* 主文字 slate-800 */
+  --ink-2: #475569;   /* 次级 slate-600 */
+  --ink-3: #64748b;   /* 弱化 slate-500 */
+
+  /* ---- 品牌强调（浅底加深版） ---- */
+  --accent-cyan: #0891b2;
+  --accent-cyan-strong: #0e7490;
+  --accent-magenta: #db2777;
+  --accent-gold: #d97706;
+  --accent-indigo: #4f46e5;
+  --accent-green: #059669;
+
+/* ---- 工程网格（浅玻璃上的淡墨线，与整体纯玻璃风格统一） ---- */
+  --cad-grid-minor: rgba(15, 23, 42, 0.055);
+  --cad-grid-major: rgba(8, 145, 178, 0.14);
+
+  --radius-card: 14px;
+  --radius-btn: 10px;
+
+  --font-ui: 'Inter', -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+}
+
+/* ====================================================================
+ * 1. 浅色极光背景（固定视口，多光晕渐层）
+ * ==================================================================== */
+body.aurora-light {
+  background-color: #eef2f8;
+  background-image:
+    radial-gradient(ellipse 62% 48% at 12% 8%,  rgba(191, 219, 254, 0.75) 0%, rgba(191, 219, 254, 0) 60%),
+    radial-gradient(ellipse 55% 42% at 88% 12%, rgba(221, 214, 254, 0.72) 0%, rgba(221, 214, 254, 0) 62%),
+    radial-gradient(ellipse 58% 46% at 78% 92%, rgba(207, 250, 254, 0.68) 0%, rgba(207, 250, 254, 0) 60%),
+    radial-gradient(ellipse 48% 40% at 18% 88%, rgba(254, 215, 226, 0.5) 0%, rgba(254, 215, 226, 0) 62%);
+  background-attachment: fixed;
+  color: var(--ink-1);
+}
+/* 极光之上再叠一层极淡噪点，避免大平面渐变的"塑料感" */
+body.aurora-light::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.035'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ====================================================================
+ * 2. 玻璃容器组件
+ * ==================================================================== */
+
+/* 顶栏 */
+.glass-header {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-glass-inset), 0 4px 24px rgba(80, 96, 160, 0.08);
+}
+
+/* 左侧活动坞 */
+.glass-dock {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-right: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-glass-inset);
+}
+
+/* 抽屉面板容器 */
+.glass-drawer {
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(28px) saturate(var(--glass-saturate));
+  backdrop-filter: blur(28px) saturate(var(--glass-saturate));
+  border-right: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-glass-inset), 6px 0 32px rgba(80, 96, 160, 0.08);
+}
+
+/* 通用玻璃卡片（替代 15 处复制粘贴的卡片类串） */
+.glass-card {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(14px) saturate(var(--glass-saturate));
+  backdrop-filter: blur(14px) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-glass-inset), var(--shadow-glass);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.glass-card:hover {
+  border-color: var(--glass-border);
+  box-shadow: var(--shadow-glass-inset), 0 10px 36px rgba(80, 96, 160, 0.18);
+}
+
+/* 模态框玻璃窗体 */
+.glass-modal {
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(36px) saturate(180%);
+  backdrop-filter: blur(36px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  box-shadow: var(--shadow-glass-inset), var(--shadow-glass-lg);
+}
+
+/* 深色画布上的轻玻璃 HUD 浮岛（分光光度计/工具提示层） */
+.glass-hud {
+  background: rgba(255, 255, 255, 0.78);
+  -webkit-backdrop-filter: blur(20px) saturate(var(--glass-saturate));
+  backdrop-filter: blur(20px) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-glass-inset), 0 8px 28px rgba(2, 6, 23, 0.35);
+  color: var(--ink-1);
+}
+
+/* 3D 画中画窗体（窗体玻璃、视口深色） */
+.glass-pip {
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(24px) saturate(var(--glass-saturate));
+  backdrop-filter: blur(24px) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-glass-inset), var(--shadow-glass-lg);
+}
+
+/* 工具提示气泡（浅玻璃，与整体主题一致；内部彩色数字仍可读） */
+.glass-tooltip {
+  background: rgba(255, 255, 255, 0.88) !important;
+  color: #334155 !important;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 8px;
+  box-shadow: var(--shadow-glass-inset), 0 8px 24px rgba(80, 96, 160, 0.22);
+  -webkit-backdrop-filter: blur(16px) saturate(var(--glass-saturate));
+  backdrop-filter: blur(16px) saturate(var(--glass-saturate));
+}
+
+/* Toast 通知 */
+.glass-toast {
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(24px) saturate(var(--glass-saturate));
+  backdrop-filter: blur(24px) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-glass-inset), var(--shadow-glass-lg);
+  color: var(--ink-1);
+}
+
+/* ====================================================================
+ * 3. 玻璃控件（按钮 / 输入 / 下拉 / 滑杆 / 徽章）
+ * ==================================================================== */
+.glass-btn {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(10px) saturate(var(--glass-saturate));
+  backdrop-filter: blur(10px) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--radius-btn);
+  color: var(--ink-1);
+  box-shadow: var(--shadow-glass-inset), 0 2px 8px rgba(80, 96, 160, 0.08);
+  transition: all 0.16s ease;
+  cursor: pointer;
+}
+.glass-btn:hover {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: var(--glass-border);
+  box-shadow: var(--shadow-glass-inset), 0 4px 14px rgba(80, 96, 160, 0.16);
+  transform: translateY(-1px);
+}
+.glass-btn:active { transform: translateY(0); }
+
+.glass-btn-primary {
+  background: linear-gradient(135deg, #06b6d4 0%, #4f46e5 100%);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: var(--radius-btn);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 6px 20px rgba(8, 145, 178, 0.35);
+  transition: all 0.16s ease;
+  cursor: pointer;
+}
+.glass-btn-primary:hover {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 8px 28px rgba(79, 70, 229, 0.45);
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+
+/* 输入框 / 下拉 */
+.glass-input,
+.glass-select {
+  background: rgba(255, 255, 255, 0.6);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 8px;
+  color: var(--ink-1);
+  box-shadow: var(--shadow-glass-inset);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.glass-input:hover, .glass-select:hover { border-color: rgba(15, 23, 42, 0.22); }
+.glass-input:focus, .glass-select:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.9);
+  border-color: var(--accent-cyan);
+  box-shadow: var(--shadow-glass-inset), 0 0 0 3px rgba(8, 145, 178, 0.18);
+}
+.glass-input::placeholder { color: var(--ink-3); }
+.glass-select option, select.glass-select option {
+  background: #ffffff;
+  color: var(--ink-1);
+}
+
+/* 滑杆（套印位移 / BWR / 折叠角） */
+input[type="range"].glass-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.12);
+  box-shadow: var(--shadow-glass-inset);
+  cursor: pointer;
+}
+input[type="range"].glass-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #ffffff 0%, #e2e8f0 100%);
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  box-shadow: 0 2px 8px rgba(80, 96, 160, 0.35), inset 0 1px 0 #fff;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+input[type="range"].glass-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 3px 12px rgba(8, 145, 178, 0.45), inset 0 1px 0 #fff;
+}
+input[type="range"].glass-slider::-moz-range-thumb {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  box-shadow: 0 2px 8px rgba(80, 96, 160, 0.35);
+}
+
+/* 药丸徽章 / 分面检视 pill */
+.glass-pill {
+  background: var(--glass-bg-soft);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border-soft);
+  border-radius: 999px;
+  color: var(--ink-2);
+  box-shadow: var(--shadow-glass-inset);
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+.glass-pill:hover { background: rgba(255, 255, 255, 0.7); color: var(--ink-1); }
+.glass-pill.is-active {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.16), rgba(99, 102, 241, 0.16));
+  border-color: rgba(8, 145, 178, 0.45);
+  color: var(--accent-cyan-strong);
+}
+
+/* ====================================================================
+ * 4. 深色 CAD 视口（画布区保持工业深色，与浅玻璃形成层次）
+ * ==================================================================== */
+/* 画布工作域：玻璃底 + 中心微亮径向渐层，为浮层提供锚定与磨砂对比 */
+.cad-canvas-grid {
+  background-color: rgba(255, 255, 255, 0.28);
+  background-image:
+    radial-gradient(ellipse 75% 65% at 50% 42%, rgba(255, 255, 255, 0.34) 0%, rgba(255, 255, 255, 0) 70%),
+    linear-gradient(to right, var(--cad-grid-minor) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--cad-grid-minor) 1px, transparent 1px),
+    linear-gradient(to right, var(--cad-grid-major) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--cad-grid-major) 1px, transparent 1px);
+  background-size: 100% 100%, 20px 20px, 20px 20px, 100px 100px, 100px 100px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+/* 显微镜镜片（青色环 + 柔影） */
+.loupe-glass {
+  box-shadow: 0 0 0 2px #0891b2, 0 20px 35px -5px rgba(0, 0, 0, 0.35), 0 0 0 6px rgba(255, 255, 255, 0.45);
+  background-size: cover;
+  pointer-events: none;
+}
+
+/* 缺陷声呐脉冲 */
+@keyframes defect-glow {
+  0% { transform: scale(0.96); opacity: 0.9; }
+  50% { transform: scale(1.08); opacity: 0.35; }
+  100% { transform: scale(0.96); opacity: 0.9; }
+}
+.defect-pulse { animation: defect-glow 2s infinite ease-in-out; }
+
+/* ====================================================================
+ * 5. 活动坞与抽屉（三态定位，重写自旧版 20+ !important）
+ * ==================================================================== */
+.activity-dock { width: 56px; transition: width 0.2s ease; }
+.flyout-drawer {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease, width 0.25s ease;
+}
+.flyout-drawer.pinned {
+  position: relative !important;
+  left: 0 !important; top: 0 !important; bottom: 0 !important;
+  transform: translateX(0) !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  box-shadow: none !important;
+}
+.flyout-drawer.unpinned-open {
+  position: absolute !important;
+  left: 56px !important; top: 0 !important; bottom: 0 !important;
+  transform: translateX(0) !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  box-shadow: 12px 0 40px -5px rgba(80, 96, 160, 0.28), 0 0 0 1px rgba(255, 255, 255, 0.5) !important;
+}
+.flyout-drawer.unpinned-closed {
+  position: absolute !important;
+  left: 56px !important; top: 0 !important; bottom: 0 !important;
+  transform: translateX(-15px) !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Dock 页签激活态：浅玻璃上的青色辉光 */
+.dock-tab-btn { position: relative; transition: all 0.18s ease; }
+.dock-tab-btn.active {
+  color: var(--accent-cyan-strong) !important;
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.14), rgba(99, 102, 241, 0.14)) !important;
+  border: 1px solid rgba(8, 145, 178, 0.4) !important;
+  box-shadow: 0 0 14px -2px rgba(8, 145, 178, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+}
+.dock-tab-btn.active .active-indicator { display: block !important; }
+
+/* ====================================================================
+ * 6. 动画（修复旧版 animate-fade-in 幽灵类）
+ * ==================================================================== */
+@keyframes pg-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes pg-scale-in {
+  from { opacity: 0; transform: scale(0.96) translateY(6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.anim-fade-in { animation: pg-fade-in 0.22s ease-out both; }
+.anim-scale-in { animation: pg-scale-in 0.26s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* 焦点可见性 */
+.glass-btn:focus-visible,
+.glass-btn-primary:focus-visible,
+.glass-input:focus-visible,
+.glass-select:focus-visible,
+button:focus-visible {
+  outline: 2px solid rgba(8, 145, 178, 0.65);
+  outline-offset: 2px;
+}
+
+/* ====================================================================
+ * 7. 滚动条（浅色）
+ * ==================================================================== */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(71, 85, 105, 0.28); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(71, 85, 105, 0.5); }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ====================================================================
+ * 8. 备注：A4 质检证书的 @media print 规则保留在 index.html 内联
+ *    （目标 #auditCertificateModal / #certificatePrintArea，与打印结构强耦合）
+ * ==================================================================== */

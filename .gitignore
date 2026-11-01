@@ -1,0 +1,11 @@
+# 开发过程产物（本地备份/截图证据/迁移脚本）
+backup/
+
+# 工具会话目录
+.zcode/
+.mimosa/
+
+# E2E 验证临时件
+_e2e.html
+_pg_*.html
+*.log
