@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>PrintGuard 提取</title>
+<script src="./js/csinterface.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 12px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+         background: #14181f; color: #cfd8e3; padding: 14px; user-select: none; }
+  h1 { font-size: 13px; color: #67e8f9; margin-bottom: 2px; letter-spacing: .5px; }
+  .sub { font-size: 10px; color: #64748b; margin-bottom: 12px; }
+  .card { background: #1c2330; border: 1px solid #2c3849; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #64748b; display: inline-block; margin-right: 6px; }
+  .dot.on { background: #34d399; } .dot.off { background: #f87171; }
+  label.check { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; }
+  button { width: 100%; padding: 9px 0; margin-top: 8px; border: 0; border-radius: 8px; cursor: pointer;
+           background: #0891b2; color: #04141a; font-weight: 700; font-size: 12px; }
+  button:hover { background: #22d3ee; }
+  button:disabled { background: #334155; color: #64748b; cursor: default; }
+  #result { font-size: 10px; color: #94a3b8; white-space: pre-wrap; word-break: break-all;
+            max-height: 120px; overflow: auto; margin-top: 8px; display: none; }
+  #result.ok { color: #34d399; display: block; }
+  #result.err { color: #f87171; display: block; }
+  .hint { font-size: 10px; color: #475569; margin-top: 10px; line-height: 1.7; }
+  a { color: #67e8f9; text-decoration: none; }
+</style>
+</head>
+<body>
+  <h1>PRINTGUARD 提取</h1>
+  <div class="sub">Illustrator → 印前工作台桥接 · v1.0</div>
+
+  <div class="card">
+    <div class="row">
+      <span><span id="srvDot" class="dot"></span>ingest 服务</span>
+      <span id="srvText" style="color:#64748b">检测中…</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <label class="check"><input type="checkbox" id="cbDieline" checked /> 刀线 DXF（CUT/CREASE 图层合成）</label>
+    <label class="check"><input type="checkbox" id="cbArtwork" checked /> 图稿 PNG（100ppi 活动画板）</label>
+    <button id="btnSend">提取并发送到工作台</button>
+    <div id="result"></div>
+  </div>
+
+  <div class="hint">
+    · 需本机运行 <b>python server.py</b>（工作台目录）<br />
+    · 图层命名含 CUT/DIE/刀线 → 刀线；CREASE/FOLD/压痕 → 折线<br />
+    · 未连接服务时草稿仍会写入 drop 目录，稍后可在工作台「外部导入」面板应用
+  </div>
+
+<script>
+  var cs = new CSInterface();
+  var SERVER = 'http://127.0.0.1:8787';
+  var btn = document.getElementById('btnSend');
+  var result = document.getElementById('result');
+
+  function show(el, cls, text) { el.className = cls; el.textContent = text; }
+
+  function ping() {
+    var done = false;
+    var xhr = new XMLHttpRequest();
+    xhr.timeout = 2500;
+    xhr.open('GET', SERVER + '/api/ping', true);
+    xhr.onreadystatechange = function () {
+      if (done) return;
+      if (xhr.readyState === 4) {
+        done = true;
+        var ok = xhr.status === 200;
+        document.getElementById('srvDot').className = 'dot ' + (ok ? 'on' : 'off');
+        document.getElementById('srvText').textContent = ok ? '已连接' : '未连接（drop 目录模式）';
+        document.getElementById('srvText').style.color = ok ? '#34d399' : '#f87171';
+      }
+    };
+    xhr.onerror = function () {
+      if (done) return; done = true;
+      document.getElementById('srvDot').className = 'dot off';
+      document.getElementById('srvText').textContent = '未连接（drop 目录模式）';
+      document.getElementById('srvText').style.color = '#f87171';
+    };
+    xhr.send();
+  }
+
+  btn.addEventListener('click', function () {
+    btn.disabled = true;
+    show(result, '', '正在提取文档数据…');
+    var d = document.getElementById('cbDieline').checked;
+    var a = document.getElementById('cbArtwork').checked;
+    cs.evalScript(
+      'PrintGuardBridge.extractAndSendSilent(' + d + ',' + a + ')',
+      function (ret) {
+        btn.disabled = false;
+        var r;
+        try { r = JSON.parse(ret); } catch (e) { r = { ok: false, error: String(ret) }; }
+        if (!r.ok) {
+          show(result, 'err', '提取失败：' + (r.error || ret));
+          return;
+        }
+        var lines = ['✓ 草稿已入库',
+          '刀线 DXF：' + (r.dxf ? '包含' : '未包含'),
+          '图稿 PNG：' + (r.artwork ? '包含' : '未包含')];
+        if (typeof r.liveText === 'number') lines.push('活动文字：' + r.liveText + ' 处');
+        show(result, 'ok', lines.join('\n'));
+        ping();
+        cs.openURLInDefaultBrowser(SERVER + '/index.html#ingest=latest');
+      });
+  });
+
+  ping();
+  setInterval(ping, 10000);
+</script>
+</body>
+</html>

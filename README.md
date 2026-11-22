@@ -145,6 +145,47 @@
 
 ---
 
+### 11. Adobe Illustrator 桥接与任意刀线通用折叠 (AI Bridge & Universal Dieline Folder)
+> 核心模块：[`adobe/host.jsx`](file:///e:/包装印刷工作台/adobe/host.jsx)（提取桥接）+ [`module_dxf_folder.js`](file:///e:/包装印刷工作台/module_dxf_folder.js)（通用折叠引擎）+ [`server.py`](file:///e:/包装印刷工作台/server.py)（ingest 服务）
+* **Illustrator 一键提取**（文件>脚本 或 CEP 面板）：
+  * 文档元数据 / 色彩模式 / 画板尺寸(mm) / 图层清单 / 活动文字与字体清单（转曲检查）/ 专色色板；
+  * 按图层命名分类刀线（CUT/DIE/刀线 → CUT；CREASE/FOLD/压痕 → CREASE），贝塞尔扁平化后合成 mm 单位 DXF——工作台零改动复用整个 DXF 解析器与图层语义分类；
+  * 活动画板 PNG 导出（100ppi）随草稿推送。
+* **ingest 接收服务**（`python server.py`，纯标准库零依赖）：
+  * `POST /api/ingest`（CEP 面板通道，CORS 全开）+ `ingest_drop/` 目录监视（脚本通道）；
+  * `GET /api/drafts · /api/draft/<id> · /api/ping`，草稿磁盘持久化（保留最新 50 份，重启自动恢复）。
+* **工作台消费**：dock 第 8 图标「外部导入 / AI 插件」面板；深链 `#ingest=<id>`（或 `#ingest=latest`）自动应用草稿；预检映射（RGB 警示 / 转曲检查 / 刀线图层清单）面板内直读；无服务器时可手动导入 ingest JSON。
+* **任意刀线通用折叠引擎**（对标 Liu et al. 2007 面邻接图生成树算法）：
+  * 刀线段求交切分（含 T 型连接）→ 平面图半边环游提取面片 → 折痕邻接 → BFS 铰链树（最大面为根）→ 2D 面框架 → 3D 递归折叠运动学；
+  * 纯逻辑层 Node 可测（含凸巴刀线 90° 相邻壁角点闭合断言），渲染层复用现有 THREE 运行时，折叠失败优雅回退通用盒模型；
+  * 折叠角 0°~90° 由现有 3D 面板滑杆统一驱动。
+* **技术栈现状**（2026-11）：UXP 在 Illustrator 未公开（仅 NDA 预发布），CEP 面板 2028-12 前完全可用——故阶段 1 采用 ExtendScript 脚本、阶段 2 采用 CEP 面板（`adobe-cep/`，PlayerDebugMode 免签安装），UXP 迁移待 Adobe GA 后评估。
+
+#### 使用要求（用户需要准备什么）
+
+| 准备项 | 必需性 | 说明 |
+|---|---|---|
+| **刀线图层**（命名含 `CUT` / `DIE` / `THRU` / `PERIMETER` / `刀线` / `刀模` / `裁切`） | ✅ 折叠必需 | 裁切轮廓；无此图层时提取仍可用，但 3D 折叠不可用 |
+| **折线/压痕图层**（命名含 `CREASE` / `FOLD` / `SCORE` / `PERF` / `压痕` / `折线` / `折痕`） | ✅ 折叠必需 | 折痕是折叠铰链的**唯一来源**；只有刀线没有折线时，引擎构建不出铰链树，3D 视口回退为通用盒模型（不按用户刀线折叠） |
+| 设计图稿（普通图文层，无需特殊命名） | ⭕ 可选 | 作为 3D 折叠体的整体贴图；缺省时面片为卡纸底色。PNG 超过 10MB 自动放弃图稿（刀线仍保留） |
+| 运行 `python server.py` | ⭕ 可选 | 提供自动推送与 `#ingest=latest` 自动应用；不运行时走「手动导入模式」（见下） |
+
+* 活动文字与专色**不阻塞**提取——仅作为预检提示（未转曲警示 / 专色清单）显示在工作台面板；
+* 刀线/折线内的贝塞尔曲线自动扁平化为折线段（每段 10 采样），圆角盒型无需手工转直；
+* 粘舌/提手等附加面板同样按面片提取，铰链树自动挂接。
+
+#### 两种运行模式（服务进程说明）
+
+| 模式 | 常驻进程 | 体验 |
+|---|---|---|
+| **自动模式** | `python server.py` 一个 Python 进程（约 20~30 MB 内存） | 提取后自动打开浏览器并应用草稿；工作台由服务托管（`http://127.0.0.1:8787/index.html`） |
+| **手动模式** | 无任何常驻进程 | 提取对话框选「仅导出草稿」（草稿落在 `ingest_drop/`，持久保存）；双击 `index.html` 打开工作台 →「外部导入」面板 →「导入 ingest JSON」选择草稿文件应用 |
+
+* 不想常驻服务时选手动模式即可；草稿文件不依赖服务存活，server 下次启动会自动把 `ingest_drop/` 里的遗留草稿入库；
+* 端口占用冲突时用 `python server.py --port 9000` 换端口，并同步修改 `adobe/host.jsx` 顶部 `CFG.SERVER_URL`（CEP 面板还需改 `adobe-cep/index.html` 的 `SERVER`）。
+
+---
+
 ## 🛠️ 文件结构 (File Architecture)
 
 ```
@@ -154,13 +195,21 @@ e:\包装印刷工作台\
 │   └── design-system.css       # 清透浅玻璃设计系统 (设计令牌 + 玻璃组件类)
 ├── js/
 │   ├── app-store.js            # 持久化存储层 (IndexedDB+localStorage 双后端/自动保存/工程文件)
-│   └── app-ui.js               # 项目管理面板 UI (工程列表/导入导出/恢复横幅)
+│   ├── app-ui.js               # 项目管理面板 UI (工程列表/导入导出/恢复横幅)
+│   └── app-ingest.js           # 外部导入管线 (AI 插件草稿消费/预检映射/手动 JSON 导入)
 ├── module_barcode_bwr.js       # 模块 1: 包装工业条码生成与印前 BWR 补偿核心模块
 ├── module_dxf_parser.js        # 模块 2: AutoCAD/ArtiosCAD 真实 DXF 刀模逆向解析与图层分类引擎
 ├── module_ciede2000.js         # 模块 3: 色彩科学核心库与 CIEDE2000 (ΔE₀₀) 工业色差评测模块
 ├── module_new_boxes.js         # 模块 4: FEFCO 0427 飞机盒与精装天地盖参数化展开与 3D 动力学模型
 ├── module_ink_estimator.js     # 模块 5: CIP3/PPF 32 墨区分析与四色耗墨量估算
 ├── module_caliper_kerf.js      # 模块 6: 数显卡尺与模切刀缝/CITO 压痕工艺计算
+├── module_dxf_folder.js        # 模块 7: 任意刀线通用折叠引擎 (面邻接图/铰链树/3D 运动学)
+├── server.py                   # ingest 接收服务 (静态托管 + POST /api/ingest + drop 目录监视)
+├── adobe/
+│   ├── host.jsx                # Illustrator 桥接库 (文档提取/合成 DXF/草稿落盘/ScriptUI)
+│   └── PrintGuard提取.jsx      # 脚本菜单入口 (evalFile host.jsx 后调 openDialog)
+├── adobe-cep/                  # 阶段2 CEP 面板包 (manifest/面板/加载器, 见 install.md)
+├── ingest_drafts/ · ingest_drop/  # ingest 服务运行时数据 (gitignore)
 ├── docs/
 │   └── 架构判别报告.md          # 架构现状判别、底层缺失清单与演化路线图
 ├── backup/                     # (本地开发产物，不入库) 重绘前的原始备份与验证截图
@@ -194,4 +243,20 @@ node module_new_boxes.js
 
 # 5. 运行持久化存储层测试 (序列化/工程文件往返 11 项)
 node js/app-store.js
+
+# 6. 运行通用折叠引擎测试 (面片提取/铰链树/90° 角点闭合 8 项)
+node module_dxf_folder.js
 ```
+
+### 3. 启动 Illustrator 桥接（AI 插件链路）
+
+```powershell
+# 启动 ingest 接收服务（兼静态托管工作台，默认 127.0.0.1:8787，--port 可换）
+python server.py
+```
+
+* **脚本模式（阶段 1）**：将 `adobe/host.jsx` 与 `adobe/PrintGuard提取.jsx` 拷入
+  `<Illustrator 安装目录>\Presets\zh_CN\Scripts\`，重启 AI → 文件 > 脚本 > PrintGuard提取；
+* **面板模式（阶段 2）**：按 [`adobe-cep/install.md`](adobe-cep/install.md) 启用 PlayerDebugMode 并拷入 CEP 扩展目录；
+* 提取后自动打开 `http://127.0.0.1:8787/index.html#ingest=latest`，工作台「外部导入」面板自动应用草稿并进入折叠演示；
+* **使用前准备**：文档中需有命名规范的刀线图层与折线/压痕图层（折叠必需），设计图稿可选——详见上文「使用要求」表；不运行服务时的手动导入模式见「两种运行模式」。

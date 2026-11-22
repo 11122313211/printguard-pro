@@ -23,6 +23,7 @@
   <script src="./module_new_boxes.js"></script>
   <script src="./module_ink_estimator.js"></script>
   <script src="./module_caliper_kerf.js"></script>
+  <script src="./module_dxf_folder.js"></script>
   <!-- Persistence Store (UMD, 供主脚本包装 state) -->
   <script src="./js/app-store.js"></script>
 
@@ -191,6 +192,17 @@
           </button>
           <div class="pointer-events-none absolute left-14 top-1/2 -translate-y-1/2 ml-2 px-2.5 py-1 glass-tooltip text-xs font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50">
             本地工程库 / 自动保存 <span class="text-[10px] text-cadCyan font-mono">7</span>
+          </div>
+        </div>
+
+      <!-- 7. External Ingest (Illustrator Bridge) -->
+        <div class="relative group w-full flex justify-center">
+          <button id="navBtnExternal" data-tab="external" class="dock-tab-btn relative w-10 h-10 rounded-xl flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-brandCard/80 transition-all duration-150" title="外部导入与 AI 插件桥接 (Ingest)">
+            <span class="active-indicator absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-cadCyan rounded-r hidden"></span>
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          </button>
+          <div class="pointer-events-none absolute left-14 top-1/2 -translate-y-1/2 ml-2 px-2.5 py-1 glass-tooltip text-xs font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50">
+            外部导入 / AI 插件 <span class="text-[10px] text-cadCyan font-mono">8</span>
           </div>
         </div>
       </div>
@@ -882,6 +894,27 @@
           <div id="projectList"></div>
         </div>
 
+        <!-- PANEL 7: 外部导入 / AI 插件桥接 (External Ingest) -->
+        <div id="panelExternal" class="drawer-panel hidden flex-1 p-3 space-y-3 overflow-y-auto text-xs">
+          <div class="glass-card p-3 space-y-2.5">
+            <div class="flex items-center justify-between">
+              <h4 class="font-bold text-slate-900 text-[11px] flex items-center space-x-1.5">
+                <svg class="w-3.5 h-3.5 text-cadCyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                <span>外部导入 / AI 插件</span>
+              </h4>
+              <span id="ingestServerBadge" class="text-[9px] font-mono text-slate-500 bg-white/60 border border-brandBorder rounded px-1.5 py-0.5">…</span>
+            </div>
+            <p class="text-[10px] text-slate-500 leading-relaxed">接收 Adobe Illustrator「PrintGuard 提取」脚本推送的文档草稿：刀线 DXF + 图稿 PNG + 转曲/色彩预检信息。需本机运行 <span class="font-mono text-slate-600">python server.py</span>。</p>
+            <div id="ingestSummary" class="rounded-lg bg-white/50 border border-brandBorder p-2 space-y-1 min-h-[52px]"></div>
+            <div class="flex items-center space-x-1.5">
+              <button id="ingestRefreshBtn" class="glass-btn flex-1 text-[11px] px-2 py-1">刷新草稿列表</button>
+              <button id="ingestImportBtn" class="glass-btn flex-1 text-[11px] px-2 py-1">导入 ingest JSON</button>
+              <input type="file" id="ingestImportFile" accept=".json,application/json" class="hidden" />
+            </div>
+            <div id="ingestDraftList"></div>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -991,15 +1024,22 @@
               </div>
             </div>
 
-            <!-- Live Densitometer Spectrophotometer HUD -->
-            <div id="densitometerHud" class="absolute bottom-3 left-3 glass-hud p-2.5 text-xs font-mono pointer-events-none transition-opacity duration-200 z-20">
-              <div class="flex items-center justify-between text-[11px] text-slate-500 mb-1.5 pb-1 border-b border-brandBorder">
-                <div class="flex items-center space-x-1.5">
+            <!-- Live Densitometer Spectrophotometer HUD (可拖动 / 可折叠，避免遮挡图稿)
+                 w-[420px]: 显式宽度防止 shrink-to-fit —— 视口收窄(固定侧栏/切页签)时
+                 靠右停靠会被压缩重排成窄高条，锚定计算随之失效(悬浮工具乱跑根因) -->
+            <div id="densitometerHud" class="absolute bottom-3 left-3 w-[420px] max-w-[calc(100%-8px)] glass-hud p-2.5 text-xs font-mono transition-opacity duration-200 z-20">
+              <div id="densitometerHudHeader" class="flex items-center justify-between text-[11px] text-slate-500 mb-1.5 pb-1 border-b border-brandBorder cursor-grab active:cursor-grabbing select-none" title="按住拖动移动探针面板 · 双击折叠读数">
+                <div class="flex items-center space-x-1.5 pointer-events-none">
+                  <span class="text-slate-400 text-[10px] tracking-tighter leading-none">⣿</span>
                   <span class="w-2 h-2 rounded-full bg-cadCyan"></span>
                   <span>分光光度计网点探针</span>
                 </div>
-                <span id="hudPosText" class="text-[10px] text-slate-500">X: 120.4 mm Y: 84.2 mm</span>
+                <div class="flex items-center space-x-1.5">
+                  <span id="hudPosText" class="text-[10px] text-slate-500 pointer-events-none">X: 120.4 mm Y: 84.2 mm</span>
+                  <button id="hudCollapseBtn" class="w-4 h-4 flex items-center justify-center rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 text-[10px] leading-none border border-slate-300/60" title="折叠 / 展开读数">−</button>
+                </div>
               </div>
+              <div id="densitometerHudBody">
               <div class="grid grid-cols-6 gap-1.5 text-center text-[11px]">
                 <div class="bg-cyan-50/90 p-1 rounded border border-cyan-300/60">
                   <span class="text-cyan-600 block text-[9px]">CYAN</span>
@@ -1038,6 +1078,7 @@
                   <span id="hudDeltaEBadge" class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-700 border border-emerald-500/40 text-[9px]">优秀 PASS</span>
                 </div>
               </div>
+              </div><!-- /densitometerHudBody -->
             </div>
 
             <!-- Overprint Alert Warning Banner -->
@@ -3951,6 +3992,7 @@
     });
 
     window.addEventListener('mousemove', (e) => {
+      if (state.hudDragging) return; // 拖动探针面板时暂停画布采样，避免读数抖动
       if (state.isDragging) {
         state.pan.x = e.clientX - state.dragStart.x;
         state.pan.y = e.clientY - state.dragStart.y;
@@ -4138,6 +4180,188 @@
       loupeCtx.arc(targetSize / 2, targetSize / 2, targetSize * 0.35, 0, Math.PI * 2);
       loupeCtx.stroke();
       loupeCtx.restore();
+    }
+
+    /* ----------------------------------------------------
+     * Densitometer HUD — 自由拖动 / 折叠 / 位置记忆
+     * 解决：面板钉死在左下角遮挡图稿。按住标题栏拖到任意位置，
+     *       双击标题栏或点 − 折叠成迷你胶囊；位置写入 localStorage。
+     * ---------------------------------------------------- */
+    const densitometerHud = document.getElementById('densitometerHud');
+    const densitometerHudHeader = document.getElementById('densitometerHudHeader');
+    const densitometerHudBody = document.getElementById('densitometerHudBody');
+    const hudCollapseBtn = document.getElementById('hudCollapseBtn');
+    const hudViewportEl = document.getElementById('canvasViewport');
+    const HUD_POS_KEY = 'pg.hudPos';
+    const HUD_COLLAPSED_KEY = 'pg.hudCollapsed';
+
+    /* 「锚点+边距」记录：面板贴向哪个角落、距锚定边多远。
+     * 视口几何变化（固定侧栏/切页签/分屏/窗口缩放）时按锚点重排，
+     * 无增量依赖 —— RO 通知漏投或合并投递都能自愈。 */
+    let hudAnchor = null;
+
+    function edgeAnchor(el, parentEl) {
+      const w = el.offsetWidth, h = el.offsetHeight;
+      const pw = parentEl.clientWidth, ph = parentEl.clientHeight;
+      const x = parseFloat(el.style.left), y = parseFloat(el.style.top);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      const right = x + w / 2 > pw / 2, bottom = y + h / 2 > ph / 2;
+      return {
+        ax: right ? 'right' : 'left', ay: bottom ? 'bottom' : 'top',
+        ox: Math.max(4, Math.round(right ? pw - x - w : x)),
+        oy: Math.max(4, Math.round(bottom ? ph - y - h : y))
+      };
+    }
+
+    function applyEdgeAnchor(el, parentEl, a) {
+      const w = el.offsetWidth, h = el.offsetHeight;
+      const x = a.ax === 'right' ? parentEl.clientWidth - a.ox - w : a.ox;
+      const y = a.ay === 'bottom' ? parentEl.clientHeight - a.oy - h : a.oy;
+      el.style.left = Math.round(x) + 'px';
+      el.style.top = Math.round(y) + 'px';
+    }
+
+    function isHudPositioned() { return densitometerHud.style.left !== ''; }
+
+    /* 内联定位后接管 CSS 默认 bottom-3 left-3，需清掉 right/bottom 防止双向拉伸 */
+    function pinHudToInline(px, py) {
+      densitometerHud.style.left = px + 'px';
+      densitometerHud.style.top = py + 'px';
+      densitometerHud.style.right = 'auto';
+      densitometerHud.style.bottom = 'auto';
+    }
+
+    function clampHudPosition() {
+      if (!isHudPositioned()) return; // 未拖动前维持 CSS 默认锚点
+      const x = Math.max(4, Math.min(parseFloat(densitometerHud.style.left), hudViewportEl.clientWidth - densitometerHud.offsetWidth - 4));
+      const y = Math.max(4, Math.min(parseFloat(densitometerHud.style.top), hudViewportEl.clientHeight - densitometerHud.offsetHeight - 4));
+      densitometerHud.style.left = x + 'px';
+      densitometerHud.style.top = y + 'px';
+    }
+
+    function persistHudPosition() {
+      try {
+        if (isHudPositioned()) {
+          const a = hudAnchor || edgeAnchor(densitometerHud, hudViewportEl);
+          localStorage.setItem(HUD_POS_KEY, JSON.stringify({
+            x: parseFloat(densitometerHud.style.left),
+            y: parseFloat(densitometerHud.style.top),
+            ax: a ? a.ax : 'left', ay: a ? a.ay : 'top',
+            ox: a ? a.ox : 4, oy: a ? a.oy : 4
+          }));
+        }
+      } catch (eHud) { /* 隐私模式等存储不可用则静默 */ }
+    }
+
+    function setHudCollapsed(collapsed) {
+      const hOld = isHudPositioned() ? densitometerHud.offsetHeight : 0;
+      densitometerHudBody.classList.toggle('hidden', collapsed);
+      hudCollapseBtn.textContent = collapsed ? '＋' : '−';
+      try { localStorage.setItem(HUD_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch (eHud) {}
+      /* 下锚定时折叠/展开保持底缘不跳 */
+      if (isHudPositioned() && hudAnchor && hudAnchor.ay === 'bottom') {
+        const dh = hOld - densitometerHud.offsetHeight;
+        if (dh) densitometerHud.style.top = (parseFloat(densitometerHud.style.top) + dh) + 'px';
+      }
+      clampHudPosition();
+      if (isHudPositioned()) hudAnchor = edgeAnchor(densitometerHud, hudViewportEl);
+      persistHudPosition();
+    }
+
+    let hudDragOffset = null;
+    densitometerHudHeader.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      if (e.target === hudCollapseBtn || hudCollapseBtn.contains(e.target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const vr = hudViewportEl.getBoundingClientRect();
+      const r = densitometerHud.getBoundingClientRect();
+      pinHudToInline(r.left - vr.left, r.top - vr.top);
+      hudDragOffset = { x: e.clientX - r.left, y: e.clientY - r.top };
+      state.hudDragging = true;
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!hudDragOffset) return;
+      const vr = hudViewportEl.getBoundingClientRect();
+      const x = e.clientX - vr.left - hudDragOffset.x;
+      const y = e.clientY - vr.top - hudDragOffset.y;
+      pinHudToInline(
+        Math.max(4, Math.min(x, vr.width - densitometerHud.offsetWidth - 4)),
+        Math.max(4, Math.min(y, vr.height - densitometerHud.offsetHeight - 4))
+      );
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!hudDragOffset) return;
+      hudDragOffset = null;
+      state.hudDragging = false;
+      clampHudPosition();
+      hudAnchor = edgeAnchor(densitometerHud, hudViewportEl);
+      persistHudPosition();
+    });
+
+    hudCollapseBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setHudCollapsed(!densitometerHudBody.classList.contains('hidden'));
+    });
+
+    densitometerHudHeader.addEventListener('dblclick', (e) => {
+      if (e.target === hudCollapseBtn || hudCollapseBtn.contains(e.target)) return;
+      setHudCollapsed(!densitometerHudBody.classList.contains('hidden'));
+    });
+
+    window.addEventListener('resize', scheduleReconcile);
+
+    (function restoreHudState() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(HUD_POS_KEY) || 'null');
+        if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+          pinHudToInline(saved.x, saved.y);
+          clampHudPosition(); // 窗口变小后旧位置可能越界
+        }
+        if (saved && (saved.ax === 'right' || saved.ax === 'left')) {
+          /* 抽屉开合状态跨会话可能不同，按「锚点+边距」重排而非沿用旧 px */
+          applyEdgeAnchor(densitometerHud, hudViewportEl, saved);
+        }
+        hudAnchor = (saved && saved.ax) ? saved
+          : (isHudPositioned() ? edgeAnchor(densitometerHud, hudViewportEl) : null);
+        if (localStorage.getItem(HUD_COLLAPSED_KEY) === '1') setHudCollapsed(true);
+      } catch (eHud) { /* 坏档忽略，走 CSS 默认位置 */ }
+    })();
+
+    /* ----------------------------------------------------
+     * 视口几何自适应 — 修复「切换页签/固定侧栏时悬浮工具乱跑」
+     * 固定(pinned)侧栏与不同抽屉面板会改变画布视口宽高，inline
+     * 定位的悬浮面板（密度计 HUD / 3D 画中画）若保持原 px 不动，
+     * 会被裁剪出视口或在恢复后漂移到半空。RO 投递后去抖 120ms
+     * 再按「锚点+边距」对账，且几何在回调内现场重读 —— 避开
+     * 抽屉宽度过渡的中间帧，漏投/合并投递也都能自愈。
+     * ---------------------------------------------------- */
+    let hudSettleTimer = null;
+    function reconcileFloatingTools() {
+      /* 3D 画中画（分屏模式下由 flex 布局接管，拖动中不抢位） */
+      const pipEl = document.getElementById('pip3dContainer');
+      if (pipEl && pipEl.style.left && pipAnchor && !state.splitView && !isDraggingPip) {
+        applyEdgeAnchor(pipEl, pipEl.offsetParent || document.body, pipAnchor);
+        clampPipWithinParent();
+      }
+      /* 密度计 HUD */
+      if (!state.hudDragging && isHudPositioned() && hudAnchor) {
+        applyEdgeAnchor(densitometerHud, hudViewportEl, hudAnchor);
+        clampHudPosition();
+        persistHudPosition();
+      }
+    }
+    function scheduleReconcile() {
+      if (hudSettleTimer) clearTimeout(hudSettleTimer);
+      hudSettleTimer = setTimeout(() => {
+        hudSettleTimer = null;
+        reconcileFloatingTools();
+      }, 120);
+    }
+    if (window.ResizeObserver && hudViewportEl) {
+      new ResizeObserver(scheduleReconcile).observe(hudViewportEl);
     }
 
     /* ----------------------------------------------------
@@ -4524,6 +4748,7 @@
     let scene3d, camera3d, renderer3d, controls3d;
     let boxGroup3d;
     let panels3d = {};
+    let __pgFolderScene = null; /* 任意刀线通用折叠场景（module_dxf_folder.js） */
     const faceCanvases = {};
     const faceTextures = {};
 
@@ -5138,6 +5363,10 @@
     function build3DBoxStructure() {
       if (!pip3dAvailable) return; /* 3D 已降级：换盒型/重贴图时静默短路 */
       if (boxGroup3d) {
+        if (__pgFolderScene && __pgFolderScene.dispose) {
+          try { __pgFolderScene.dispose(); } catch (eFd) { /* 释放失败不阻塞重建 */ }
+        }
+        __pgFolderScene = null;
         if (typeof scene3d !== 'undefined' && scene3d) scene3d.remove(boxGroup3d);
         disposeThreeHierarchy(boxGroup3d, false);
         boxGroup3d = null;
@@ -5191,6 +5420,36 @@
         if (typeof scene3d !== 'undefined' && scene3d) scene3d.add(boxGroup3d);
         return;
       }
+
+      // ---- 任意 DXF 刀线通用折叠引擎（module_dxf_folder.js）----
+      // 解析刀线拓扑 → 面邻接图 → 铰链树 → 逐面折叠；失败则回退下方通用盒模型
+      if (state.preset === 'custom_dxf' && state.customDxf && typeof PrintGuardDxfFolder !== 'undefined') {
+        try {
+          const folderPlan = PrintGuardDxfFolder.planFromParsedDxf(state.customDxf, { flipY: false });
+          if (folderPlan.ok && folderPlan.stats.hingeCount > 0 && folderPlan.stats.faceCount > 1) {
+            let folderTexture = null;
+            try {
+              if (state.customImage) {
+                folderTexture = new THREE.Texture(state.customImage);
+                folderTexture.needsUpdate = true;
+              }
+            } catch (eTex) { folderTexture = null; }
+            __pgFolderScene = PrintGuardDxfFolder.build3DScene(folderPlan, {
+              foldAngleDeg: state.foldAngleDeg || 0,
+              texture: folderTexture,
+              scale: 34 / Math.max(folderPlan.widthMm, folderPlan.heightMm, 1)
+            });
+            boxGroup3d = __pgFolderScene.group;
+            panels3d = __pgFolderScene.panels;
+            if (typeof scene3d !== 'undefined' && scene3d) scene3d.add(boxGroup3d);
+            return;
+          }
+        } catch (eFolder) {
+          console.warn('[PrintGuardFolder] 通用折叠失败，回退通用盒模型:', eFolder);
+          __pgFolderScene = null;
+        }
+      }
+      __pgFolderScene = null;
 
       // Box dimensions based on presets
       let bw = 36, bh = 54, bd = 22;
@@ -5373,6 +5632,11 @@
     }
 
     function applyCartonFoldAngle(angle) {
+      /* 任意刀线通用折叠：全部 swing 铰链统一驱动（module_dxf_folder.js） */
+      if (__pgFolderScene && __pgFolderScene.setFold) {
+        __pgFolderScene.setFold(Math.max(0, Math.min(90, angle)));
+        return;
+      }
       const clamped = Math.max(0, Math.min(90, angle));
       const progress = clamped / 90.0;
       const rad90 = progress * (Math.PI / 2);
@@ -5504,6 +5768,14 @@
       pip3dContainer.style.top = `${Math.max(minTop, Math.min(maxTop, curTop))}px`;
     }
 
+    /* 悬浮画中画的「锚点+边距」记录：拖动结束时捕获，视口随抽屉
+     * 开合/分屏变化时由 HUD 区的 ResizeObserver 按锚点重排，
+     * 避免「切换页签时画中画漂移/被裁」。 */
+    let pipAnchor = null;
+    function capturePipAnchor() {
+      pipAnchor = edgeAnchor(pip3dContainer, pip3dContainer.offsetParent || document.body);
+    }
+
     if (pipHeader && pip3dContainer) {
       const startPipDrag = (clientX, clientY, target) => {
         if (state.splitView) return false;
@@ -5564,6 +5836,7 @@
         document.body.style.userSelect = '';
         document.body.style.cursor = '';
         pipHeader.style.cursor = '';
+        capturePipAnchor();
       };
 
       pipHeader.addEventListener('mousedown', (e) => {
@@ -6406,6 +6679,12 @@
         subtitle: 'Projects & Persistence',
         iconSvg: '<svg class="w-4 h-4 text-cadCyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>'
       },
+      external: {
+        panelId: 'panelExternal',
+        title: '外部导入与 AI 插件',
+        subtitle: 'External Ingest & AI Bridge',
+        iconSvg: '<svg class="w-4 h-4 text-cadCyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>'
+      },
       '3d': {
         panelId: 'panel3d',
         title: '3D 折叠打样与检视',
@@ -6450,6 +6729,9 @@
           panel.classList.add('hidden');
         }
       });
+
+      // 不同抽屉面板高度不同 → 画布视口几何变化 → 悬浮面板按锚点重排
+      if (typeof scheduleReconcile === 'function') scheduleReconcile();
     }
 
     function openFlyoutDrawer(tabKey = null) {
@@ -6465,6 +6747,7 @@
       } else {
         flyoutDrawer.className = 'flyout-drawer unpinned-open w-80 glass-drawer flex flex-col shrink-0 z-30 overflow-hidden';
       }
+      if (typeof scheduleReconcile === 'function') scheduleReconcile();
     }
 
     function closeFlyoutDrawer(immediate = false) {
@@ -6475,11 +6758,13 @@
         dockState.closeTimer = null;
         dockState.isOpen = false;
         flyoutDrawer.className = 'flyout-drawer unpinned-closed w-80 glass-drawer flex flex-col shrink-0 z-30 overflow-hidden';
+        if (typeof scheduleReconcile === 'function') scheduleReconcile();
       } else {
         if (dockState.closeTimer) clearTimeout(dockState.closeTimer);
         dockState.closeTimer = setTimeout(() => {
           dockState.isOpen = false;
           flyoutDrawer.className = 'flyout-drawer unpinned-closed w-80 glass-drawer flex flex-col shrink-0 z-30 overflow-hidden';
+          if (typeof scheduleReconcile === 'function') scheduleReconcile();
           dockState.closeTimer = null;
         }, 280);
       }
@@ -6503,9 +6788,13 @@
         showToast('侧边栏已恢复自动收起');
       }
 
+      // 固定/取消固定改变画布视口宽度 → 悬浮面板按锚点重排
+      if (typeof scheduleReconcile === 'function') scheduleReconcile();
+
       // Smooth canvas refit & ruler update
       setTimeout(() => {
         resizeCanvas();
+        if (typeof scheduleReconcile === 'function') scheduleReconcile();
       }, 260);
     }
 
@@ -7165,6 +7454,9 @@
           showToast
         });
       }
+      if (typeof PrintGuardAppIngest !== 'undefined') {
+        PrintGuardAppIngest.init({ state, applySnapshot, showToast });
+      }
     }
 
     // Initialization
@@ -7179,11 +7471,18 @@
       updateDieCuttingKerfSpecs();
       switchDockTab('preflight');
       initPersistence();
-      // URL hash 深链：#panel=structure|preflight|separations|layers|3d|projects
+      // URL hash 深链：#panel=structure|preflight|separations|layers|3d|projects|external
       const hashPanel = (location.hash.match(/panel=([a-z0-9]+)/i) || [])[1];
       if (hashPanel && DOCK_TABS[hashPanel]) {
         switchDockTab(hashPanel);
         if (typeof openFlyoutDrawer === 'function') openFlyoutDrawer(hashPanel);
+      }
+      // 外部导入深链：#ingest=<draftId>（Illustrator 插件推送后自动打开）
+      const hashIngest = (location.hash.match(/ingest=([a-z0-9-]+)/i) || [])[1];
+      if (hashIngest && typeof PrintGuardAppIngest !== 'undefined') {
+        switchDockTab('external');
+        if (typeof openFlyoutDrawer === 'function') openFlyoutDrawer('external');
+        setTimeout(() => PrintGuardAppIngest.applyDraftById(hashIngest), 600);
       }
       // 演示参数（视觉验证用）：#demo=toast|warning|banner|report|cert|help|split
       const hashDemo = (location.hash.match(/demo=([a-z]+)/i) || [])[1];
@@ -7239,5 +7538,7 @@
   </script>
   <!-- Projects & Persistence UI (依赖 DOM 与主脚本函数，置于尾部) -->
   <script src="./js/app-ui.js"></script>
+  <!-- External Ingest / Illustrator Bridge UI (依赖 DOM 与主脚本函数，置于尾部) -->
+  <script src="./js/app-ingest.js"></script>
 </body>
 </html>

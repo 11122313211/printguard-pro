@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExtensionManifest Version="7.0" ExtensionBundleId="com.printguard.ingest" ExtensionBundleVersion="1.0.0" ExtensionBundleName="PrintGuard Ingest" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <ExtensionList>
+    <Extension Id="com.printguard.ingest.panel" Version="1.0.0"/>
+  </ExtensionList>
+  <ExecutionEnvironment>
+    <HostList>
+      <!-- Illustrator 2023(v27) ~ 2026(v30+)：CEP 兼容区间 -->
+      <Host Name="ILST" Version="[27.0,99.9]"/>
+    </HostList>
+    <LocaleList>
+      <Locale Code="All"/>
+    </LocaleList>
+    <RequirementList/>
+  </ExecutionEnvironment>
+  <DispatchInfoList>
+    <Extension Id="com.printguard.ingest.panel">
+      <DispatchInfo>
+        <Resources>
+          <MainPath>./index.html</MainPath>
+          <!-- host.jsx 随面板自动载入 ExtendScript 引擎，注册 PrintGuardBridge -->
+          <ScriptPath>./host.jsx</ScriptPath>
+          <CEFCommandLine>
+            <Parameter>--allow-file-access</Parameter>
+            <Parameter>--allow-file-access-from-files</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>true</AutoVisible>
+        </Lifecycle>
+        <UI>
+          <Type>Panel</Type>
+          <Menu>PrintGuard 提取</Menu>
+          <Geometry>
+            <Size>
+              <Height>430</Height>
+              <Width>330</Width>
+            </Size>
+            <MinSize>
+              <Height>220</Height>
+              <Width>230</Width>
+            </MinSize>
+          </Geometry>
+        </UI>
+      </DispatchInfo>
+    </Extension>
+  </DispatchInfoList>
+</ExtensionManifest>

@@ -9,3 +9,12 @@ backup/
 _e2e.html
 _pg_*.html
 *.log
+
+# Ingest 服务运行时数据（草稿/投放目录）
+ingest_drafts/
+ingest_drop/
+
+# 工具插件缓存指针
+.video_agent/
+# Python 编译缓存
+__pycache__/
