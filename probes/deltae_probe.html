@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>DELTAE_PROBE_RUNNING</title></head>
+<body style="margin:0">
+<iframe id="f" src="http://127.0.0.1:8787/index.html" style="width:1440px;height:900px;border:0"></iframe>
+<pre id="results">[]</pre>
+<script>
+'use strict';
+/* ΔE 峰值真实化验证探针（R5 回归版）：
+   ① 模态框 ΔE 单元格与独立重算一致 ② JSON 导出含真实峰值/样本数/评级 */
+var f = document.getElementById('f');
+var out = [];
+var probeStarted = false;
+function t(name, pass, detail) {
+  out.push({ name: name, pass: !!pass, detail: String(detail || '') });
+  document.getElementById('results').textContent = JSON.stringify(out);
+}
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+function independentPeak(w) {
+  var d = w.document;
+  var canvas = d.getElementById('proofingCanvas');
+  var P = w.PrintGuardColor;
+  if (!canvas || !P) return null;
+  var N = 24;
+  var peak = 0, samples = 0;
+  try {
+    var ctx2 = canvas.getContext('2d');
+    for (var ix = 0; ix < N; ix++) {
+      for (var iy = 0; iy < N; iy++) {
+        var x = Math.floor((ix + 0.5) * canvas.width / N);
+        var y = Math.floor((iy + 0.5) * canvas.height / N);
+        var px = ctx2.getImageData(x, y, 1, 1).data;
+        if (px[3] < 255) continue;
+        var lab = P.srgbToLab({ r: px[0], g: px[1], b: px[2] }, 'D50');
+        var best = Infinity;
+        for (var k in P.FOGRA39_PRIMARIES) {
+          var tg = P.FOGRA39_PRIMARIES[k];
+          var de = P.ciede2000(lab, [tg.L, tg.a, tg.b]);
+          if (de < best) best = de;
+        }
+        if (best < Infinity) { if (best > peak) peak = best; samples++; }
+      }
+    }
+    return samples ? { peak: peak, samples: samples } : null;
+  } catch (e) { return null; }
+}
+
+async function run() {
+  try {
+    await sleep(2800);
+    var w = f.contentWindow, d = w.document;
+
+    d.getElementById('openReportBtn').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await sleep(1200);
+    var modal = d.getElementById('reportModal');
+    t('T1 报告模态框打开', modal && !modal.classList.contains('hidden'), 'hidden=' + (modal && modal.classList.contains('hidden')));
+
+    var cell = d.getElementById('reportDeltaEPeakCell');
+    if (!cell) {
+      d.querySelectorAll('#reportModal td').forEach(function (td) {
+        if (!cell && /ΔE₀₀\s*([0-9]+|N.A)/.test(td.textContent)) cell = td;
+      });
+    }
+    var cellText = cell ? cell.textContent.trim() : '(未找到)';
+    var mNum = cellText.match(/ΔE₀₀\s*([0-9]+(?:\.[0-9]+)?)/);
+    var cellVal = mNum ? parseFloat(mNum[1]) : NaN;
+    t('T2 单元格含可解析 ΔE 数值', !isNaN(cellVal), 'cell="' + cellText + '"');
+
+    var ref = independentPeak(w);
+    t('T3 独立重算一致', !!ref && Math.abs(ref.peak - cellVal) <= 0.5,
+      'ref=' + (ref ? ref.peak.toFixed(3) + ' (' + ref.samples + '样本)' : 'null') + ' cell=' + cellVal);
+
+    var captured = null;
+    var origAnchorClick = w.HTMLAnchorElement.prototype.click;
+    w.HTMLAnchorElement.prototype.click = function () {
+      if (this.hasAttribute && this.hasAttribute('download')) return;
+      return origAnchorClick.apply(this, arguments);
+    };
+    var origCreate = w.URL.createObjectURL;
+    w.URL.createObjectURL = function (blob) { captured = blob; return origCreate.call(w.URL, blob); };
+    d.getElementById('downloadJsonBtn').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await sleep(400);
+    w.URL.createObjectURL = origCreate;
+    w.HTMLAnchorElement.prototype.click = origAnchorClick;
+    var jsonOk = await new Promise(function (resolve) {
+      if (!captured) { resolve(false); return; }
+      var fr = new f.contentWindow.FileReader();
+      fr.onload = function () {
+        try {
+          var j = JSON.parse(String(fr.result));
+          var a = j.preflight_audit && j.preflight_audit.ciede2000_audit || {};
+          resolve(Math.abs((a.delta_e_peak || -1) - cellVal) <= 0.5 &&
+            Number(a.samples_audited) > 0 &&
+            ['PASS', 'WARN', 'FAIL'].indexOf(a.tolerance_rating) >= 0);
+        } catch (e) { resolve(false); }
+      };
+      fr.onerror = function () { resolve(false); };
+      fr.readAsText(captured);
+    });
+    t('T4 JSON 导出含真实峰值/样本数/评级', !!jsonOk, 'captured=' + !!captured);
+
+    var closeBtn = d.getElementById('closeReportBtn');
+    if (closeBtn) closeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  } catch (e) {
+    t('EXCEPTION', false, e && (e.stack || e.message));
+  }
+  document.getElementById('results').textContent = JSON.stringify(out, null, 1);
+  var pass = out.every(function (r) { return r.pass; });
+  document.title = pass ? 'DELTAE_PROBE_PASS' : 'DELTAE_PROBE_FAIL';
+}
+window.addEventListener('load', function () {
+  if (probeStarted) return;
+  probeStarted = true;
+  run();
+});
+</script>
+</body>
+</html>

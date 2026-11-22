@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>HUD_INIT_PROBE_RUNNING</title></head>
+<body style="margin:0">
+<iframe id="f" src="http://127.0.0.1:8787/index.html" style="width:1440px;height:900px;border:0"></iframe>
+<pre id="results">[]</pre>
+<script>
+'use strict';
+/* R2 验证探针：HUD ΔE/TAC 首帧初值真实化（全程不模拟 mousemove） */
+var f = document.getElementById('f');
+var out = [];
+var probeStarted = false;
+function t(name, pass, detail) {
+  out.push({ name: name, pass: !!pass, detail: String(detail || '') });
+  document.getElementById('results').textContent = JSON.stringify(out);
+}
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+async function run() {
+  try {
+    await sleep(3200);
+    var w = f.contentWindow, d = w.document;
+    var de = d.getElementById('hudDeltaEVal').textContent.trim();
+    var badge = d.getElementById('hudDeltaEBadge').textContent.trim();
+    var tac = d.getElementById('hudTacVal').textContent.trim();
+
+    /* T1: 不再是静态占位（旧值 ΔE₀₀ 1.14 / 240%） */
+    t('T1 ΔE初值非占位1.14', /ΔE₀₀\s*[0-9]+\.[0-9]/.test(de) && !/^ΔE₀₀\s*1\.14$/.test(de), 'de="' + de + '"');
+    t('T2 TAC初值非占位240', /^\d+%$/.test(tac) && tac !== '240%', 'tac="' + tac + '"');
+
+    /* T3: 与报告模态框同源（打开模态框比对同一 audit 数值） */
+    d.getElementById('openReportBtn').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await sleep(1000);
+    var repTac = (d.getElementById('reportTacCell').textContent.match(/峰值\s*(\d+)%/) || [])[1];
+    var repDe = (d.getElementById('reportDeltaEPeakCell').textContent.match(/ΔE₀₀\s*([0-9.]+)/) || [])[1];
+    var deNum = (de.match(/([0-9.]+)/) || [])[1];
+    var tacNum = tac.replace('%', '');
+    t('T3 ΔE初值与报告同源', !!repDe && Math.abs(parseFloat(deNum) - parseFloat(repDe)) <= 0.01,
+      'hud=' + deNum + ' report=' + repDe);
+    t('T4 TAC初值与报告同源', !!repTac && tacNum === repTac, 'hud=' + tacNum + '% report=' + repTac + '%');
+    var closeBtn = d.getElementById('closeReportBtn');
+    if (closeBtn) closeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  } catch (e) {
+    t('EXCEPTION', false, e && (e.stack || e.message));
+  }
+  document.getElementById('results').textContent = JSON.stringify(out, null, 1);
+  var pass = out.every(function (r) { return r.pass; });
+  document.title = pass ? 'HUD_INIT_PROBE_PASS' : 'HUD_INIT_PROBE_FAIL';
+}
+f.onload = function () {
+  if (probeStarted) return;
+  probeStarted = true;
+  run();
+};
+</script>
+</body>
+</html>

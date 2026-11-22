@@ -202,8 +202,9 @@
     if (!deps) return;
     deps.Store.getAutosave().then(function (rec) {
       if (!rec || !rec.snapshot) return;
-      /* init 时用户尚未操作，此刻 makeSnapshot() 即全新默认状态基线 */
-      var hasContent = snapshotHasContent(rec.snapshot, deps.makeSnapshot ? deps.makeSnapshot() : null);
+      /* init 时用户尚未操作，此刻 makeSnapshot() 即全新默认状态基线；
+         基线仅用于比较、用完即弃，skipThumbnail 省去无谓的缩略图生成 */
+      var hasContent = snapshotHasContent(rec.snapshot, deps.makeSnapshot ? deps.makeSnapshot({ skipThumbnail: true }) : null);
       if (!hasContent) return; /* 纯初始状态不打扰 */
 
       var banner = document.createElement('div');

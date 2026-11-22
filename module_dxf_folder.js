@@ -312,11 +312,11 @@
   }
 
   function computeHinges(faces, edges, eps) {
-    /* 每条 crease 边若被两个面共享 → 铰链 */
+    /* 每条折叠语义边（crease 压痕 / perf 齿刀半断）若被两个面共享 → 铰链 */
     var hinges = [];
     for (var i = 0; i < edges.length; i++) {
       var e = edges[i];
-      if (e.cls !== 'crease') continue;
+      if (e.cls !== 'crease' && e.cls !== 'perf') continue;
       var owner1 = null, owner2 = null;
       for (var f = 0; f < faces.length; f++) {
         if (faceContainsEdge(faces[f], e.u, e.v)) {
@@ -487,6 +487,7 @@
         visited[other] = true;
         hingesOut.push({
           id: hg.id,
+          cls: hg.cls,   /* 语义随 segment 传播：perf（齿刀）铰链可配置独立折叠角 */
           a: chosenA, b: chosenB,
           parentFace: faces[cur].id, childFace: faces[other].id
         });
@@ -566,11 +567,21 @@
     return [1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1];
   }
 
-  function worldTransforms(plan, angleDeg) {
+  function hingeAngleDeg(hinge, angleDeg, options) {
+    /* 铰链目标角映射：perf（齿刀/半断线）铰链在配置了 perfAngleDeg（number）时
+       固定取该角度（不随 foldAngleDeg 变），其余铰链（crease 等）跟随主折叠角；
+       未配置 perfAngleDeg 时与旧版行为完全一致 */
+    if (hinge && hinge.cls === 'perf' && options && typeof options.perfAngleDeg === 'number') {
+      return options.perfAngleDeg;
+    }
+    return angleDeg || 0;
+  }
+
+  function worldTransforms(plan, angleDeg, options) {
     /* 返回 { faceId → { matrix, worldPoly: [[x,y,z],...] } }
        约定：mm 世界系（x 右，y 上/下视输入约定，z 出平面），
-       折叠绕铰链轴 +θ（所有铰链统一向 +z 侧折，朝相机方向成型，与预设盒视觉一致） */
-    var theta = (angleDeg || 0) * Math.PI / 180;
+       折叠绕铰链轴 +θ（统一向 +z 侧折，朝相机方向成型，与预设盒视觉一致；
+       各铰链角度经 hingeAngleDeg 按 cls 语义取值） */
     var byId = {};
     for (var i = 0; i < plan.faces.length; i++) byId[plan.faces[i].id] = plan.faces[i];
     var hingeById = {};
@@ -592,7 +603,8 @@
         var aLocal = applyFrame(parent.frame, hinge.a[0], hinge.a[1]);
         var bLocal = applyFrame(parent.frame, hinge.b[0], hinge.b[1]);
         var ang = Math.atan2(bLocal[1] - aLocal[1], bLocal[0] - aLocal[0]);
-        M = mat4Mul(pM, mat4Mul(mat4T(aLocal[0], aLocal[1], 0), mat4Mul(mat4Rz(ang), mat4Rx(theta))));
+        var thetaH = hingeAngleDeg(hinge, angleDeg, options) * Math.PI / 180;
+        M = mat4Mul(pM, mat4Mul(mat4T(aLocal[0], aLocal[1], 0), mat4Mul(mat4Rz(ang), mat4Rx(thetaH))));
       } else {
         M = mat4Identity(); /* 孤立面：平铺 */
       }
@@ -624,6 +636,7 @@
 
     var rootGroup = new THREE.Group();
     var swings = [];
+    var swingHinge = [];   /* 与 swings 平行：各 swing 对应的铰链（setFold 按语义取角） */
     var panels = [];
     var disposables = [];
 
@@ -701,6 +714,7 @@
         swing.add(faceGroup);
         parentGroup.add(pivot);
         swings.push(swing);
+        swingHinge.push(hinge);
       } else {
         /* 孤立面：平铺在旁 */
         faceGroup.position.x = (plan.widthMm * scale) * 1.15;
@@ -709,8 +723,11 @@
     }
 
     function setFold(angleDeg) {
-      var rad = -(angleDeg || 0) * Math.PI / 180;
-      for (var s = 0; s < swings.length; s++) swings[s].rotation.x = rad;
+      /* perf 铰链保持配置的 perfAngleDeg（若提供），其余铰链跟随主折叠角；
+         负号沿用既有约定（THREE rotation.x 与 mm 系折叠方向相反） */
+      for (var s = 0; s < swings.length; s++) {
+        swings[s].rotation.x = -hingeAngleDeg(swingHinge[s], angleDeg, options) * Math.PI / 180;
+      }
     }
     setFold(options.foldAngleDeg || 0);
 
@@ -951,6 +968,96 @@
       assert(p1.ok === false, '空段 → ok=false');
       var p2 = buildFoldPlan([{ ax: 0, ay: 0, bx: 50, by: 0, cls: 'crease' }], {});
       assert(p2.ok === false || p2.stats.faceCount === 0, '单段无面或 0 面');
+    });
+
+    /* ---- T6: perf 语义铰链（齿刀/半断线）→ 独立折叠角 ---- */
+    function faceZRange(poly) {
+      var zMin = Infinity, zMax = -Infinity;
+      for (var v = 0; v < poly.length; v++) {
+        zMin = Math.min(zMin, poly[v][2]);
+        zMax = Math.max(zMax, poly[v][2]);
+      }
+      return [zMin, zMax];
+    }
+    function plusSegmentsPerf() {
+      /* 复用凸巴刀线：南壁折痕改为 perf 语义。y=0 处 cut 与 crease 几何重合
+         （去重规则 crease 优先），改 perf 后需移除该重合 cut 段，边才能保留 perf */
+      var s = plusSegments().filter(function (seg) {
+        return !(seg.cls === 'cut' && seg.ax === 0 && seg.ay === 0 && seg.bx === 100 && seg.by === 0);
+      });
+      for (var i = 0; i < s.length; i++) {
+        if (s[i].cls === 'crease' && s[i].ax === 0 && s[i].ay === 0 && s[i].bx === 100 && s[i].by === 0) {
+          s[i] = { ax: s[i].ax, ay: s[i].ay, bx: s[i].bx, by: s[i].by, cls: 'perf' };
+        }
+      }
+      return s;
+    }
+    function perfWallChild(plan) {
+      var perfH = plan.hinges.filter(function (h) { return h.cls === 'perf'; })[0];
+      return plan.faces.filter(function (f) { return f.hingeId === perfH.id; })[0];
+    }
+
+    T('perf 铰链: perfAngleDeg=0 → perf 面共面、crease 面立起', function () {
+      var plan = buildFoldPlan(plusSegmentsPerf(), {});
+      assert(plan.ok, 'plan ok');
+      assert(plan.stats.faceCount === 5 && plan.stats.hingeCount === 4, '5 面 4 铰链（perf 折痕仍参与折叠树）');
+      assert(plan.stats.orphanFaces === 0, '南壁经 perf 铰链连入树，无孤立面');
+      var perfH = plan.hinges.filter(function (h) { return h.cls === 'perf'; });
+      var creaseH = plan.hinges.filter(function (h) { return h.cls === 'crease'; });
+      assert(perfH.length === 1 && creaseH.length === 3,
+        'cls 传播到 hinge：1 perf + 3 crease，实际 ' + perfH.length + '/' + creaseH.length);
+      var wt = worldTransforms(plan, 90, { perfAngleDeg: 0 });
+      var root = plan.faces.filter(function (f) { return f.parent === null; })[0];
+      assert(root && root.area > 9900, '根面为底板');
+      /* perf 相连面：与根面保持共面（z 恒 0，世界坐标不因折叠改变） */
+      var perfChild = perfWallChild(plan);
+      assert(perfChild.parent === root.id, 'perf 铰链连接根面与南壁');
+      var zr = faceZRange(wt[perfChild.id].worldPoly);
+      near(zr[0], 0, 1e-6, 'perf 面最低 z=0');
+      near(zr[1], 0, 1e-6, 'perfAngleDeg=0 → perf 面平展不折叠');
+      /* crease 相连面：照常 90° 立起（远边 z≈壁深 50） */
+      var stoodUp = 0;
+      for (var c = 0; c < creaseH.length; c++) {
+        var child = plan.faces.filter(function (f) { return f.hingeId === creaseH[c].id; })[0];
+        var zr2 = faceZRange(wt[child.id].worldPoly);
+        near(zr2[0], 0, 1e-6, 'crease 面铰链侧 z=0');
+        near(zr2[1], 50, 0.5, 'crease 面立起远边 z=50');
+        stoodUp++;
+      }
+      assert(stoodUp === 3, '三条 crease 壁全部立起');
+    });
+
+    T('perf 铰链: 未传 perfAngleDeg → 与旧版一致（perf 跟随 foldAngleDeg）', function () {
+      var plan = buildFoldPlan(plusSegmentsPerf(), {});
+      var wtA = worldTransforms(plan, 90);
+      var wtB = worldTransforms(plan, 90, {});
+      /* 显式对照：不传 options 与传空 options 逐点等价 */
+      for (var id in wtA) {
+        for (var v = 0; v < wtA[id].worldPoly.length; v++) {
+          var p = wtA[id].worldPoly[v], q = wtB[id].worldPoly[v];
+          near((p[0] - q[0]) + (p[1] - q[1]) + (p[2] - q[2]), 0, 1e-9, '空 options 与旧调用等价');
+        }
+      }
+      /* perf 面不固定角度 → 跟随 90° 主角立起（旧版统一角度行为） */
+      var perfChild = perfWallChild(plan);
+      var zr = faceZRange(wtA[perfChild.id].worldPoly);
+      near(zr[0], 0, 1e-6, 'perf 面铰链侧 z=0');
+      near(zr[1], 50, 0.5, '未配置 perfAngleDeg → perf 面跟随 foldAngleDeg=90 立起');
+    });
+
+    T('perf 铰链: perfAngleDeg=45 → perf 面 45°、crease 面仍 90°', function () {
+      var plan = buildFoldPlan(plusSegmentsPerf(), {});
+      var wt = worldTransforms(plan, 90, { perfAngleDeg: 45 });
+      var perfChild = perfWallChild(plan);
+      var zr = faceZRange(wt[perfChild.id].worldPoly);
+      near(zr[0], 0, 1e-6, 'perf 面铰链侧 z=0');
+      near(zr[1], 50 * Math.SQRT1_2, 0.5, 'perf 面远边 z=50·sin45°');
+      near(Math.abs(faceNormal(wt[perfChild.id].worldPoly)[2]), Math.SQRT1_2, 1e-6, 'perf 面法向倾角 45°');
+      var creaseH = plan.hinges.filter(function (h) { return h.cls === 'crease'; });
+      for (var c = 0; c < creaseH.length; c++) {
+        var child = plan.faces.filter(function (f) { return f.hingeId === creaseH[c].id; })[0];
+        near(faceZRange(wt[child.id].worldPoly)[1], 50, 0.5, 'crease 面仍随主角 90° 立起');
+      }
     });
 
     console.log('\n============================================================');

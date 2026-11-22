@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>INGEST_PROBE_RUNNING</title></head>
+<body style="margin:0">
+<iframe id="f" src="about:blank" style="width:1440px;height:900px;border:0"></iframe>
+<pre id="results">[]</pre>
+<script>
+'use strict';
+/* R3-F 验证探针：草稿列表 30s 自动刷新 + 已应用标记 */
+var f = document.getElementById('f');
+var out = [];
+var probeStarted = false;
+function t(name, pass, detail) {
+  out.push({ name: name, pass: !!pass, detail: String(detail || '') });
+  document.getElementById('results').textContent = JSON.stringify(out);
+}
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+var TS = Date.now();
+
+function postDraft(id, name) {
+  var dxf = '0\nSECTION\n2\nENTITIES\n0\nLWPOLYLINE\n8\nCutContour\n90\n4\n70\n0.0\n10\n0.0\n20\n0.0\n10\n100.0\n20\n0.0\n10\n100.0\n20\n70.0\n10\n0.0\n20\n70.0\n0\nENDSEC\n0\nEOF\n';
+  return fetch('/api/ingest', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      app: 'PrintGuardIngest', id: id,
+      doc: { name: name, widthMm: 100, heightMm: 70, colorSpace: 'CMYK' },
+      checks: { liveTextCount: 0, fonts: [], dielineLayers: { cut: ['CutContour'], crease: ['Crease'] } },
+      dxf: dxf, artworkDataUrl: null
+    })
+  }).then(function (r) { return r.json(); });
+}
+
+function listText(w) {
+  var el = w.document.getElementById('ingestDraftList');
+  return el ? el.textContent : '(no list)';
+}
+
+async function run() {
+  try {
+    /* 准备：先注入草稿 A，再以 #ingest=latest 打开工作台（自动应用并打开面板） */
+    var rA = await postDraft('probe-r3f-a-' + TS, 'R3F草稿A');
+    t('P0 草稿A入库', !!(rA && rA.ok), JSON.stringify(rA).slice(0, 90));
+
+    f.src = 'http://127.0.0.1:8787/index.html?ingestprobe=' + TS + '#ingest=latest';
+    await sleep(4200); /* init + 深链延迟 600ms + apply + refreshDrafts */
+    var w = f.contentWindow;
+    var lt = listText(w);
+    t('P1 草稿A出现在列表', lt.indexOf('R3F草稿A') >= 0, 'list=' + lt.slice(0, 120).replace(/\s+/g, ' '));
+    t('P2 A卡标记已应用', /已应用/.test(lt) && /已应用 ✓/.test(lt), 'marker=' + /已应用/.test(lt));
+
+    /* 注入草稿 B，不点刷新，等 30s 轮询自动拉取 */
+    var rB = await postDraft('probe-r3f-b-' + TS, 'R3F草稿B');
+    t('P0b 草稿B入库', !!(rB && rB.ok), JSON.stringify(rB).slice(0, 90));
+    await sleep(31500); /* 30s 轮询 tick */
+    w = f.contentWindow;
+    var lt2 = listText(w);
+    t('P3 30s后B自动出现（未手动刷新）', lt2.indexOf('R3F草稿B') >= 0, 'list=' + lt2.slice(0, 160).replace(/\s+/g, ' '));
+    t('P4 A仍带已应用标记、B不带', lt2.indexOf('R3F草稿A') >= 0 && /已应用 ✓/.test(lt2), 'list=' + lt2.slice(0, 200).replace(/\s+/g, ' '));
+
+    /* 清理探针草稿 */
+    try { await fetch('/api/draft/probe-r3f-a-' + TS, { method: 'DELETE' }); } catch (e) {}
+    try { await fetch('/api/draft/probe-r3f-b-' + TS, { method: 'DELETE' }); } catch (e) {}
+  } catch (e) {
+    t('EXCEPTION', false, e && (e.stack || e.message));
+  }
+  document.getElementById('results').textContent = JSON.stringify(out, null, 1);
+  var pass = out.every(function (r) { return r.pass; });
+  document.title = pass ? 'INGEST_PROBE_PASS' : 'INGEST_PROBE_FAIL';
+}
+window.addEventListener('load', function () {
+  /* 用 window load 启动（about:blank 的 iframe load 在处理器注册前已同步触发，不可靠） */
+  if (probeStarted) return;
+  probeStarted = true;
+  run();
+});
+</script>
+</body>
+</html>

@@ -6348,7 +6348,7 @@
       const noteEl = document.getElementById('reportEngineerNote');
       if (noteEl) {
         if (score >= 95) {
-          noteEl.textContent = '刀模线 CutContour 确认为 100% 叠印专色属性，粘胶位脱墨完成，小字全量直压杜绝套印露白，墨量 ≤ 300% 受控。文件已达到 CTP 直接制版及印刷上机投产标准！';
+          noteEl.textContent = `刀模线 CutContour 确认为 100% 叠印专色属性，粘胶位脱墨完成，小字全量直压杜绝套印露白，墨量峰值经实测审计，限额 ${state.isTacFixed ? 280 : 340}% 受控。文件已达到 CTP 直接制版及印刷上机投产标准！`;
           noteEl.className = 'mt-1 text-emerald-700';
         } else {
           noteEl.textContent = '注意：当前文档仍存在阻断性印前缺陷（偏色/露白/粘胶污染/墨量超标），直接制版存在高报废风险，建议点击一键全合规修复或按项修复后重新体检。';
@@ -6372,9 +6372,9 @@
         </tr>
         <tr>
           <td class="p-2.5 font-bold text-slate-800">3. 最大总墨量限制 (TAC / TIC)</td>
-          <td class="p-2.5 text-slate-500">≤ 300% (ISO 12647-2)</td>
-          <td class="p-2.5 font-mono ${state.isTacFixed ? 'text-emerald-600' : 'text-amber-600'}">${state.isTacFixed ? '峰值 280%' : '峰值 340% (超标)'}</td>
-          <td class="p-2.5"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${state.isTacFixed ? 'bg-emerald-500/20 text-emerald-700' : 'bg-amber-500/20 text-amber-700'}">${state.isTacFixed ? '通过 (PASS)' : '警告 (WARN)'}</span></td>
+          <td class="p-2.5 text-slate-500">${state.isTacFixed ? '≤ 280% (UCR 控墨后)' : '≤ 340% (默认分色)'}</td>
+          <td id="reportTacCell" class="p-2.5 font-mono text-slate-400">TAC --</td>
+          <td class="p-2.5"><span id="reportTacBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/20 text-slate-600">跳过 (SKIP)</span></td>
         </tr>
         <tr>
           <td class="p-2.5 font-bold text-slate-800">4. 字体转曲完整性 (Outlined Fonts)</td>
@@ -6403,8 +6403,8 @@
         <tr>
           <td class="p-2.5 font-bold text-slate-800">8. 工业条码与 BWR 墨水补偿 (GS1 & BWR)</td>
           <td class="p-2.5 text-slate-500">GS1 静区 ≥ 2.54mm | BWR 补偿受控</td>
-          <td class="p-2.5 font-mono text-emerald-600">静区 3.20mm | BWR 0.025mm</td>
-          <td class="p-2.5"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-700">通过 (PASS)</span></td>
+          <td id="reportQuietZoneCell" class="p-2.5 font-mono text-slate-400">静区 -- | BWR --</td>
+          <td class="p-2.5"><span id="reportQuietZoneBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/20 text-slate-600">跳过 (SKIP)</span></td>
         </tr>
       `;
 
@@ -6433,6 +6433,65 @@
         } else {
           deltaEBadge.textContent = '跳过 (SKIP)';
           deltaEBadge.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/20 text-slate-600';
+        }
+      }
+
+      // Row 3 audit: real measured TAC peak through the separation pipeline (replaces hard-coded 峰值 280%/340%)
+      const tacAudit = computeTacAudit();
+      const tacCell = document.getElementById('reportTacCell');
+      if (tacCell) {
+        if (tacAudit) {
+          const isTacOver = tacAudit.tacPeak > tacAudit.tacLimit;
+          tacCell.textContent = `峰值 ${(tacAudit.tacPeak * 100).toFixed(0)}% / 限额 ${(tacAudit.tacLimit * 100).toFixed(0)}%${isTacOver ? ' (超标)' : ' (PASS)'}`;
+          tacCell.className = `p-2.5 font-mono ${isTacOver ? 'text-rose-500' : 'text-emerald-600'}`;
+        } else {
+          tacCell.textContent = 'N/A（画布跨域受限）';
+          tacCell.className = 'p-2.5 font-mono text-slate-400';
+        }
+      }
+      // 行 3 徽章与测量 td 同步联动（同一次打开模态框内同步填充，覆盖上面的 SKIP 占位）
+      const tacBadge = document.getElementById('reportTacBadge');
+      if (tacBadge) {
+        if (tacAudit) {
+          const isTacOver = tacAudit.tacPeak > tacAudit.tacLimit;
+          tacBadge.textContent = isTacOver ? '超标 (FAIL)' : '通过 (PASS)';
+          tacBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold ${isTacOver ? 'bg-rose-500/20 text-rose-600' : 'bg-emerald-500/20 text-emerald-700'}`;
+        } else {
+          tacBadge.textContent = '跳过 (SKIP)';
+          tacBadge.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/20 text-slate-600';
+        }
+      }
+
+      // Row 8 audit: real GS1 quiet zone + BWR from the barcode model (replaces hard-coded 静区 3.20mm | BWR 0.025mm)
+      const quietZoneAudit = computeBarcodeQuietZoneAudit();
+      const quietZoneCell = document.getElementById('reportQuietZoneCell');
+      if (quietZoneCell) {
+        const leftAudit = quietZoneAudit && quietZoneAudit.left;
+        const bwrMm = (state.barcode && typeof state.barcode.bwrMm === 'number') ? state.barcode.bwrMm : 0.025;
+        let quietText = '静区 N/A';
+        let quietClass = 'text-slate-400';
+        if (leftAudit && quietZoneAudit.compliant) {
+          quietText = `静区 ${leftAudit.actualMm.toFixed(2)}mm ≥ ${leftAudit.minRequiredMm.toFixed(2)}mm (PASS)`;
+          quietClass = 'text-emerald-600';
+        } else if (leftAudit) {
+          quietText = `静区亏缺 ${leftAudit.shortfallMm.toFixed(2)}mm (WARN)`;
+          quietClass = 'text-rose-500';
+        }
+        quietZoneCell.textContent = `${quietText} | BWR ${bwrMm.toFixed(3)}mm`;
+        quietZoneCell.className = `p-2.5 font-mono ${quietClass}`;
+      }
+      // 行 8 徽章与测量 td 同步联动（同一次打开模态框内同步填充，覆盖上面的 SKIP 占位）
+      const quietZoneBadge = document.getElementById('reportQuietZoneBadge');
+      if (quietZoneBadge) {
+        if (quietZoneAudit && quietZoneAudit.compliant) {
+          quietZoneBadge.textContent = '通过 (PASS)';
+          quietZoneBadge.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-700';
+        } else if (quietZoneAudit) {
+          quietZoneBadge.textContent = '亏缺 (WARN)';
+          quietZoneBadge.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-600';
+        } else {
+          quietZoneBadge.textContent = '跳过 (SKIP)';
+          quietZoneBadge.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/20 text-slate-600';
         }
       }
 
@@ -6513,12 +6572,84 @@
       }
     }
 
+    /* ----------------------------------------------------
+     * Real-Pixel TAC Peak Audit (打样画布网格采样 × 分色管线)
+     * Replaces the former hard-coded "峰值 280%/340%"（那是限额不是测量值）—
+     * feeds the report modal row 3. industrialCmykPixel 入参为 0-1 反射率
+     * (RGB/255)，返回 {c,m,y,k}（无 tac 字段），逐点 TAC = C+M+Y+K 求和；
+     * 测量时以 maxTac: 9.99 解除管线硬钳制（见函数内注释），读数即真实峰值。
+     * ---------------------------------------------------- */
+    function computeTacAudit() {
+      if (typeof industrialCmykPixel !== 'function' || !canvas || !ctx) return null;
+      try {
+        const w = canvas.width;
+        const h = canvas.height;
+        if (!w || !h) return null;
+        // GCR/UCR 沿用当前状态分色设置（与 generateSeparationPlates() 1616-1618 行一致）；
+        // maxTac 解除钳制（9.99）：若传当前限额，管线会把超限墨量钳掉再返回，
+        // 测量值恒 ≤ 限额、审计恒 PASS，属自证审计无审计意义。解除后测得的才是
+        // "当前 GCR/UCR 分色下、未硬钳制的真实峰值 TAC"，再与实际限额 tacLimit 比较。
+        // 注（实测）：UCR 三通道净减墨超过 GCR 加回的 K（3·ucr − gcr ≥ 1）时，
+        // 公式本身将 TAC 结构性封顶在 200%（近黑分支 145%），故解除钳制后峰值
+        // 仍可能低于限额——这是分色引擎的真实行为，如实呈现，不经钳制路径自证。
+        const gcr = state.isTacFixed ? 0.85 : 0.65;
+        const ucr = state.isTacFixed ? 0.85 : 0.60;
+        const tacLimit = state.isTacFixed ? 2.80 : 3.40;
+        // Throws on a cross-origin tainted canvas → caught below, audit N/A
+        const pxData = ctx.getImageData(0, 0, w, h).data;
+        const GRID_STEPS = 24; // 24×24 uniform grid over the full canvas
+        let tacPeak = 0;
+        let validSamples = 0;
+        for (let gy = 0; gy < GRID_STEPS; gy++) {
+          const py = Math.min(h - 1, Math.floor(((gy + 0.5) / GRID_STEPS) * h));
+          for (let gx = 0; gx < GRID_STEPS; gx++) {
+            const pxX = Math.min(w - 1, Math.floor(((gx + 0.5) / GRID_STEPS) * w));
+            const idx = (py * w + pxX) * 4;
+            if (pxData[idx + 3] < 255) continue; // Skip non-fully-opaque pixels
+            const res = industrialCmykPixel(pxData[idx] / 255.0, pxData[idx + 1] / 255.0, pxData[idx + 2] / 255.0, { gcr, ucr, maxTac: 9.99 });
+            const pointTac = res.c + res.m + res.y + res.k;
+            if (pointTac > tacPeak) tacPeak = pointTac;
+            validSamples++;
+          }
+        }
+        if (!validSamples) return null;
+        return { tacPeak, tacLimit, samples: validSamples };
+      } catch (err) {
+        return null; // Cross-origin tainted canvas or engine failure → audit unavailable
+      }
+    }
+
+    /* ----------------------------------------------------
+     * GS1 Quiet Zone Audit (BarcodeBwrEngine.compileBarcodeModel)
+     * 与 updateBarcodeQuietZoneAudit() 相同的裸构建入参 {type,text,bwrMm}；
+     * 模态框打开与 JSON 导出两个触发点各自独立重算，不引入共享缓存。
+     * ---------------------------------------------------- */
+    function computeBarcodeQuietZoneAudit() {
+      if (typeof BarcodeBwrEngine === 'undefined') return null;
+      try {
+        const model = BarcodeBwrEngine.compileBarcodeModel({
+          type: state.barcode.type,
+          text: state.barcode.code,
+          bwrMm: state.barcode.bwrMm
+        });
+        const audit = model && model.quietZoneAudit;
+        if (!audit || !audit.left) return null;
+        return { compliant: !!audit.compliant, left: audit.left };
+      } catch (e) {
+        return null; // Malformed barcode params or engine failure → audit unavailable
+      }
+    }
+
     // JSON Preflight Data Export
     document.getElementById('downloadJsonBtn').addEventListener('click', () => {
       const deltaEAudit = computeCanvasDeltaEAudit();
       const deltaERating = deltaEAudit
         ? (deltaEAudit.deltaE <= 1.5 ? 'PASS' : deltaEAudit.deltaE <= 2.5 ? 'WARN' : 'FAIL')
         : 'SKIP';
+      // 独立触发点：与模态框打开互不共享缓存，各自重算静区 audit
+      const quietZoneAudit = computeBarcodeQuietZoneAudit();
+      // 独立触发点：TAC 峰值审计随导出重算（与上方 ΔE/静区同风格，不共享缓存）
+      const tacAuditExport = computeTacAudit();
       const data = {
         application: "PrintGuard Pro Prepress Workstation",
         standard: "ISO 12647-2 / Fogra39",
@@ -6528,6 +6659,8 @@
           rgb_cleared: state.isRgbFixed,
           overprint_black_active: state.isOverprintBlack,
           tac_limited_280: state.isTacFixed,
+          tac_peak_measured: tacAuditExport ? Number((tacAuditExport.tacPeak * 100).toFixed(0)) : 'n/a',
+          tac_limit_percent: tacAuditExport ? Number((tacAuditExport.tacLimit * 100).toFixed(0)) : 'n/a',
           fonts_outlined: state.isOutlined,
           glue_tab_cleared: state.isGlueCleaned,
           bleed_mm: state.bleedMm,
@@ -6537,7 +6670,8 @@
             symbology: state.barcode.type,
             data: state.barcode.code,
             bwr_reduction_mm: state.barcode.bwrMm,
-            quiet_zone_compliant: true
+            quiet_zone_compliant: quietZoneAudit ? quietZoneAudit.compliant : true,
+            ...(quietZoneAudit ? {} : { quiet_zone_audit: 'n/a' })
           },
           ciede2000_audit: {
             formula: "CIEDE2000 (ISO/CIE 11664-6)",
@@ -7063,12 +7197,17 @@
       const subNames = { fbb: '350g 高阶涂布白卡 (FBB)', matte: '300g 触感哑粉纸 (Matte)', kraft: '250g 环保本色牛皮纸 (Kraft)', metallic: '325g 镭射银卡金箔 (Foil)' };
       document.getElementById('certSubstrateName').textContent = subNames[state.substrate || 'fbb'] || '350g 工业白卡';
 
+      // Row 3 audit: real measured TAC peak via computeTacAudit()（打开证书模态框时同步实算，
+      // 同 report 模态框打开监听器风格；null = 画布跨域受限，文案降级 N/A）
+      const certTacAudit = computeTacAudit();
+      const certTacOk = certTacAudit ? certTacAudit.tacPeak <= certTacAudit.tacLimit : null;
+
       // 8 Core Preflight Inspection Items
       const tbody = document.getElementById('certTableBody');
       const items = [
         { name: '1. 色彩空间审计 (Color Gamut)', std: 'FOGRA39 / ISO 12647-2 (0 RGB)', val: state.isRgbFixed ? '纯 CMYK 规范色空间' : '存在未转换 RGB 溢出色域', pass: state.isRgbFixed },
         { name: '2. 纯黑直压与露白 (K100 Overprint)', std: 'K100 强制直压 (0.00mm 露白)', val: state.isOverprintBlack ? 'K100 直压生效 (无露白)' : 'K100 镂空 (0.25mm 露白风险)', pass: state.isOverprintBlack },
-        { name: '3. 最大总墨量限制 (TAC / TIC)', std: 'TAC ≤ 280% (ISO 12647-2:2013)', val: state.isTacFixed ? 'TAC 峰值 265% (安全)' : 'TAC 峰值 340% (超标慢干)', pass: state.isTacFixed },
+        { name: '3. 最大总墨量限制 (TAC / TIC)', std: `TAC ≤ ${state.isTacFixed ? 280 : 340}% (ISO 12647-2:2013)`, val: certTacAudit ? `TAC 峰值 ${(certTacAudit.tacPeak * 100).toFixed(0)}% (${certTacOk ? '安全' : '超标慢干'})` : 'TAC 峰值 N/A (跨域受限)', pass: certTacOk === null ? state.isTacFixed : certTacOk, cls: certTacAudit ? (certTacOk ? 'text-emerald-700 font-semibold' : 'text-amber-700 font-semibold') : 'text-slate-400 font-semibold' },
         { name: '4. 活字转曲完整性 (Outlined Fonts)', std: '纯矢量曲线轮廓 (0 活字)', val: state.isOutlined ? '全文档文字已转曲' : '检测到 4 处活动活字', pass: state.isOutlined },
         { name: '5. 糊盒粘胶区除墨 (Glue Tab)', std: '粘胶位 15mm 0% 残留墨量', val: (state.preset === 'fefco0427' ? 'FEFCO 0427 免胶自锁结构 (免胶)' : (state.isGlueCleaned ? '100% 洁净脱墨 (粘接牢固)' : '粘口残留油墨 (脱胶风险)')), pass: (state.preset === 'fefco0427' || state.isGlueCleaned) },
         { name: '6. 专色与刀模线属性 (CutContour)', std: 'CutContour 专色 1.5pt 叠印', val: 'CutContour / Crease 工业规范', pass: true },
@@ -7109,7 +7248,7 @@
         <tr class="border-b border-slate-200">
           <td class="p-2 font-bold text-slate-800">${it.name}</td>
           <td class="p-2 text-slate-600 font-mono text-[10px]">${it.std}</td>
-          <td class="p-2 font-mono ${it.pass ? 'text-emerald-700 font-semibold' : 'text-rose-700 font-semibold'}">${it.val}</td>
+          <td class="p-2 font-mono ${it.cls || (it.pass ? 'text-emerald-700 font-semibold' : 'text-rose-700 font-semibold')}">${it.val}</td>
           <td class="p-2"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${it.pass ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}">${it.pass ? '通过 (PASS)' : '阻断 (FAIL)'}</span></td>
         </tr>
       `).join('');
@@ -7391,9 +7530,13 @@
       } catch (err) { return null; }
     }
 
-    function makeSnapshot() {
+    /* opts.skipThumbnail: 恢复横幅基线比较等"用完即弃"场景省略缩略图
+       （canvas → JPEG dataURL 开销白付）；undefined 字段经 JSON.stringify（localStorage
+       兜底）天然不落盘，IndexedDB 结构化克隆下消费方也按 falsy 处理，语义等同缺席。
+       自动保存/存工程等需要缩略图的调用方不传 opts，行为不变。 */
+    function makeSnapshot(opts) {
       const snap = PrintGuardStore.serializeState(state);
-      snap.thumbnail = makeThumbnail();
+      snap.thumbnail = (opts && opts.skipThumbnail) ? undefined : makeThumbnail();
       return snap;
     }
 
@@ -7555,6 +7698,38 @@
       updateHealthScore();
       init3DViewport();
       updateDieCuttingKerfSpecs();
+      updateBarcodeQuietZoneAudit(); /* 首屏同步 GS1 静区审计徽章（原先仅条码控件交互/快照恢复时刷新） */
+      /* ---- HUD 首帧真实初值（画布左下密度计 ΔE/TAC 读数）----
+         顺序论证：本监听器首行 resizeCanvas() 末尾已调用 renderWorkbench()+drawRulers()
+         （见 resizeCanvas() 定义末段），故走到这里时画布已完成首帧渲染，像素采样审计可用。
+         computeCanvasDeltaEAudit/computeTacAudit 是同脚本后段的函数声明（提升可用），
+         且 load 事件触发时整个脚本早已执行完毕，无 const/let TDZ 风险，可直接调用。
+         仅填充 ΔE/TAC 两个测量型读数；hudDensityVal/hudLabVal 是光标语义（无光标时无意义），
+         保持静态占位不动；audit 为 null（画布被污染/引擎缺失）时同样保持占位。 */
+      const hudDeltaEAudit = computeCanvasDeltaEAudit();
+      if (hudDeltaEAudit) {
+        const hudDeEl = document.getElementById('hudDeltaEVal');
+        if (hudDeEl) {
+          hudDeEl.textContent = `ΔE₀₀ ${hudDeltaEAudit.deltaE.toFixed(2)}`;
+          hudDeEl.className = hudDeltaEAudit.deltaE <= 1.5 ? 'text-emerald-600 font-bold' : hudDeltaEAudit.deltaE <= 2.5 ? 'text-amber-600 font-bold' : 'text-rose-500 font-bold';
+        }
+        if (hudDeltaEAudit.evaluation) {
+          const hudBadgeEl = document.getElementById('hudDeltaEBadge');
+          if (hudBadgeEl) {
+            hudBadgeEl.textContent = hudDeltaEAudit.evaluation.labelZh;
+            hudBadgeEl.className = hudDeltaEAudit.deltaE <= 1.5
+              ? 'px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-700 border border-emerald-500/40 text-[9px]'
+              : hudDeltaEAudit.deltaE <= 2.5
+              ? 'px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-700 border border-amber-500/40 text-[9px]'
+              : 'px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-600 border border-rose-500/40 text-[9px]';
+          }
+        }
+      }
+      const hudTacAudit = computeTacAudit();
+      if (hudTacAudit) {
+        const hudTacEl = document.getElementById('hudTacVal');
+        if (hudTacEl) hudTacEl.textContent = `${(hudTacAudit.tacPeak * 100).toFixed(0)}%`;
+      }
       switchDockTab('preflight');
       initPersistence();
       // URL hash 深链：#panel=structure|preflight|separations|layers|3d|projects|external

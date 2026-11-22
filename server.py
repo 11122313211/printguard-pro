@@ -15,10 +15,12 @@
  启动：python server.py  （默认 127.0.0.1:8787，--port 可改）
 ===================================================================="""
 import argparse
+import errno
 import json
 import os
 import re
 import shutil
+import socket
 import sys
 import threading
 import time
@@ -258,6 +260,17 @@ class IngestHandler(SimpleHTTPRequestHandler):
             pass
 
 
+class IngestServer(ThreadingHTTPServer):
+    # Windows: SO_REUSEADDR 语义是"允许抢占"，必须改用 SO_EXCLUSIVEADDRUSE
+    # 才能拒绝第二个绑定者；非 Windows 保持默认（EADDRINUSE 天然生效）。
+    allow_reuse_address = (os.name != 'nt')
+
+    def server_bind(self):
+        if os.name == 'nt':
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def main():
     parser = argparse.ArgumentParser(description="PrintGuard Pro ingest server")
     parser.add_argument("--port", type=int, default=8787)
@@ -267,9 +280,25 @@ def main():
     _scan_disk()
     threading.Thread(target=watch_drop_folder, daemon=True).start()
 
-    server = ThreadingHTTPServer((args.host, args.port), IngestHandler)
+    try:
+        server = IngestServer((args.host, args.port), IngestHandler)
+    except OSError as err:
+        winerr = getattr(err, "winerror", None)
+        if winerr == 10048 or err.errno == errno.EADDRINUSE:
+            # Windows WinError 10048 / POSIX EADDRINUSE —— 端口已被占用
+            print("[ingest] 端口 %d 已被占用 —— 可能已有一个 server.py 在运行（这正是工作台正在连接的那个）。"
+                  % args.port, file=sys.stderr)
+        elif winerr == 10013:
+            # Windows WinError 10013 (WSAEACCES) —— 被其他程序独占或权限不足
+            print("[ingest] 端口 %d 被其他程序占用（或权限不足，如 Hyper-V 保留段）。"
+                  % args.port, file=sys.stderr)
+        else:
+            print("[ingest] 监听失败: %s" % err, file=sys.stderr)
+        print("换端口启动: python server.py --port 8788", file=sys.stderr)
+        sys.exit(1)
     print("=" * 62)
     print(" PrintGuard Pro Ingest Server")
+    print("   监听   : %s:%d" % (args.host, args.port))
     print("   工作台 : http://%s:%d/index.html" % (args.host, args.port))
     print("   草稿数 : %d（磁盘 %s）" % (len(_DRAFTS), DRAFT_DIR))
     print("   drop   : %s" % DROP_DIR)

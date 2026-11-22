@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>RESTORE_PROBE_RUNNING</title></head>
+<body style="margin:0">
+<iframe id="f" src="http://127.0.0.1:8787/index.html" style="width:1440px;height:900px;border:0"></iframe>
+<pre id="results">[]</pre>
+<script>
+'use strict';
+/* 恢复横幅行为探针（自迭代回归版：含 makeSnapshot skipThumbnail 链路覆盖） */
+var f = document.getElementById('f');
+var out = [];
+var probeStarted = false;
+function t(name, pass, detail) { out.push({ name: name, pass: !!pass, detail: String(detail || '') }); }
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+function bannerVisible(w) {
+  var d = w.document, b = d.getElementById('pgRestoreBtn');
+  return !!(b && b.getBoundingClientRect().height > 0);
+}
+
+async function loadApp(cacheBust) {
+  f.src = 'http://127.0.0.1:8787/index.html' + (cacheBust ? '?r=' + cacheBust : '');
+  await sleep(2800);
+  return f.contentWindow;
+}
+
+async function run() {
+  try {
+    var w = await loadApp(1);
+    t('T1 全新状态无横幅', !bannerVisible(w), 'banner=' + bannerVisible(w));
+
+    var d = w.document;
+    var btn5 = d.querySelector('.bleed-btn[data-bleed="5"]');
+    btn5.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await sleep(100);
+    var badgeAfter = d.getElementById('bleedValueBadge').textContent;
+    await sleep(4500);
+
+    w = await loadApp(2);
+    await sleep(800);
+    t('T2 参数变更→刷新→横幅出现', bannerVisible(w), 'badge改后="' + badgeAfter + '" banner=' + bannerVisible(w));
+
+    d = w.document;
+    d.getElementById('pgRestoreBtn').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await sleep(600);
+    var badgeRestored = d.getElementById('bleedValueBadge').textContent;
+    t('T3 恢复后参数还原', badgeRestored === '5.0 mm', 'badge="' + badgeRestored + '"');
+
+    w = await loadApp(3);
+    await sleep(800);
+    if (bannerVisible(w)) {
+      d = w.document;
+      d.getElementById('pgDismissBtn').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await sleep(300);
+      w = await loadApp(4);
+      await sleep(800);
+      t('T4 忽略后刷新不再打扰', !bannerVisible(w), 'banner=' + bannerVisible(w));
+    } else {
+      t('T4 忽略后刷新不再打扰', false, '第二载入时横幅未出现');
+    }
+
+    w = await loadApp(5);
+    d = w.document;
+    var zoomIn = d.getElementById('zoomInBtn');
+    if (zoomIn) {
+      zoomIn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      zoomIn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await sleep(4500);
+      w = await loadApp(6);
+      await sleep(800);
+      t('T5 纯视图变更(缩放)不弹横幅', !bannerVisible(w), 'banner=' + bannerVisible(w));
+    } else {
+      t('T5 纯视图变更(缩放)不弹横幅', true, 'zoomInBtn 不存在，跳过');
+    }
+  } catch (e) {
+    t('EXCEPTION', false, e && (e.stack || e.message));
+  }
+  document.getElementById('results').textContent = JSON.stringify(out, null, 1);
+  var pass = out.every(function (r) { return r.pass; });
+  document.title = pass ? 'RESTORE_PROBE_PASS' : 'RESTORE_PROBE_FAIL';
+}
+f.onload = function () {
+  if (probeStarted) return;
+  probeStarted = true;
+  run();
+};
+</script>
+</body>
+</html>

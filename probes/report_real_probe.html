@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>REPORT_REAL_PROBE_RUNNING</title></head>
+<body style="margin:0">
+<iframe id="f" src="http://127.0.0.1:8787/index.html" style="width:1440px;height:900px;border:0"></iframe>
+<pre id="results">[]</pre>
+<script>
+'use strict';
+/* Round1 验证探针：报告 TAC 行 / 静区行 / JSON quiet_zone_compliant 真实化 */
+var f = document.getElementById('f');
+var out = [];
+var probeStarted = false;
+function t(name, pass, detail) {
+  out.push({ name: name, pass: !!pass, detail: String(detail || '') });
+  document.getElementById('results').textContent = JSON.stringify(out);
+}
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function click(el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
+
+function openModal(w) {
+  var d = w.document;
+  click(d.getElementById('openReportBtn'));
+  return sleep(1000).then(function () {
+    return {
+      tac: (d.getElementById('reportTacCell') || { textContent: '(缺)' }).textContent.trim(),
+      qz: (d.getElementById('reportQuietZoneCell') || { textContent: '(缺)' }).textContent.trim(),
+      badge: d.getElementById('barcodeQuietZoneStatus') ? d.getElementById('barcodeQuietZoneStatus').textContent.trim() : ''
+    };
+  });
+}
+
+function exportJson(w) {
+  return new Promise(function (resolve) {
+    var d = w.document;
+    var captured = null;
+    var origCreate = w.URL.createObjectURL;
+    w.URL.createObjectURL = function (blob) { captured = blob; return origCreate.call(w.URL, blob); };
+    var origAnchorClick = w.HTMLAnchorElement.prototype.click;
+    w.HTMLAnchorElement.prototype.click = function () {
+      if (this.hasAttribute && this.hasAttribute('download')) return; /* 不真下载，headless 会挂 */
+      return origAnchorClick.apply(this, arguments);
+    };
+    click(d.getElementById('downloadJsonBtn'));
+    setTimeout(function () {
+      w.URL.createObjectURL = origCreate;
+      w.HTMLAnchorElement.prototype.click = origAnchorClick;
+      if (!captured) { resolve(null); return; }
+      var fr = new f.contentWindow.FileReader();
+      fr.onload = function () { try { resolve(JSON.parse(String(fr.result))); } catch (e) { resolve(null); } };
+      fr.onerror = function () { resolve(null); };
+      fr.readAsText(captured);
+    }, 400);
+  });
+}
+
+async function run() {
+  try {
+    await sleep(2800);
+    var w = f.contentWindow;
+
+    /* T1: TAC 行为真实测量格式（默认 isTacFixed=false → 限额 340%） */
+    var s1 = await openModal(w);
+    var mTac = s1.tac.match(/峰值\s*(\d+)%\s*\/\s*限额\s*(\d+)%/);
+    var mTac1 = mTac;
+    t('T1 TAC行真实格式+默认限额340', !!mTac && mTac[2] === '340' &&
+      Number(mTac[1]) > 0 && Number(mTac[1]) <= 400, 'tac="' + s1.tac + '"');
+
+    /* T2: 静区行与侧栏实时徽章同源（数值一致） */
+    var qzNums = s1.qz.match(/静区\s*([\d.]+)mm\s*≥\s*([\d.]+)mm/);
+    var badgeNums = s1.badge.match(/([\d.]+)\s*mm\s*≥\s*([\d.]+)\s*mm/);
+    t('T2 静区行与实时徽章同源', !!qzNums && !!badgeNums &&
+      Math.abs(parseFloat(qzNums[1]) - parseFloat(badgeNums[1])) < 0.005 &&
+      Math.abs(parseFloat(qzNums[2]) - parseFloat(badgeNums[2])) < 0.005,
+      'report="' + s1.qz + '" badge="' + s1.badge + '"');
+
+    /* T3: UCR 控墨翻转 → 限额变 280% 且实测峰值不升（解除钳制后语义为真） */
+    click(w.document.getElementById('fixTacBtn'));
+    await sleep(300);
+    var s2 = await openModal(w);
+    var mTac2 = s2.tac.match(/峰值\s*(\d+)%\s*\/\s*限额\s*(\d+)%/);
+    t('T3 翻转isTacFixed后限额280且实测不升', !!mTac2 && mTac2[2] === '280' &&
+      !!mTac1 && Number(mTac2[1]) <= Number(mTac1[1]),
+      'before=' + s1.tac + ' after="' + s2.tac + '"');
+    click(w.document.getElementById('fixTacBtn')); /* 翻回 */
+    await sleep(200);
+
+    /* T4: JSON 导出 quiet_zone_compliant 为真实 boolean，与徽章 PASSED 一致；bwr 与 JSON 内一致 */
+    var j = await exportJson(w);
+    var compliantExpect = /PASS/.test(s1.badge);
+    var bwrJson = j && j.preflight_audit && j.preflight_audit.barcode_audit &&
+      j.preflight_audit.barcode_audit.bwr_reduction_mm;
+    var bwrCell = (s1.qz.match(/BWR\s*([\d.]+)mm/) || [])[1];
+    t('T4 JSON quiet_zone_compliant 与徽章一致', !!j &&
+      typeof (j.preflight_audit.barcode_audit || {}).quiet_zone_compliant === 'boolean' &&
+      (j.preflight_audit.barcode_audit || {}).quiet_zone_compliant === compliantExpect,
+      'json=' + JSON.stringify(j && j.preflight_audit && j.preflight_audit.barcode_audit) +
+      ' badge="' + s1.badge + '"');
+    t('T4b BWR 单元格与 JSON 真实值一致', !!bwrJson && !!bwrCell &&
+      Math.abs(parseFloat(bwrCell) - Number(bwrJson)) < 0.0005,
+      'cell=' + bwrCell + ' json=' + bwrJson);
+  } catch (e) {
+    t('EXCEPTION', false, e && (e.stack || e.message));
+  }
+  document.getElementById('results').textContent = JSON.stringify(out, null, 1);
+  var pass = out.every(function (r) { return r.pass; });
+  document.title = pass ? 'REPORT_REAL_PROBE_PASS' : 'REPORT_REAL_PROBE_FAIL';
+}
+f.onload = function () {
+  if (probeStarted) return;
+  probeStarted = true;
+  run();
+};
+</script>
+</body>
+</html>

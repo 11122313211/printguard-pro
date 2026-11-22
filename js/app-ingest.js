@@ -17,6 +17,7 @@
   var deps = null;
   var lastApplied = null;   /* 最近一次应用的草稿摘要（渲染用，不持久化） */
   var serverOnline = false;
+  var draftPollTimer = null; /* 草稿列表 30s 轮询句柄；非 null 即已启动（init 幂等守卫，同 _pgWired 思路） */
 
   /* 同源直连；file:// 打开时回退到约定端口（server.py 已开 CORS *） */
   var API_BASE = (location.protocol === 'http:' || location.protocol === 'https:')
@@ -130,6 +131,7 @@
     deps.applySnapshot(snap, true); /* 外部导入：撤销栈断点重置 */
     lastApplied = { id: draft.id, doc: draft.doc || {}, checks: draft.checks || {}, appliedAt: Date.now() };
     renderIngestSummary();
+    refreshDrafts(); /* 立即刷新草稿列表，让「已应用」徽章即时生效（离线时仅重绘离线文案，无害） */
     deps.showToast('已应用外部草稿「' + ((draft.doc && draft.doc.name) || draft.id) + '」', 'success');
     return Promise.resolve(true);
   }
@@ -189,16 +191,22 @@
       if (d.hasDxf) flags.push('刀线');
       if (d.hasArtwork) flags.push('图稿');
       if (d.liveTextCount > 0) flags.push('<span class="text-amber-600">文字' + d.liveTextCount + '</span>');
+      var applied = !!(lastApplied && lastApplied.id === d.id); /* 最近应用过的草稿：名称旁打徽章、按钮置灰 */
       return '<div class="glass-card p-2 mb-2" data-did="' + escapeHtml(d.id) + '">' +
         '<div class="flex items-center justify-between gap-2">' +
           '<div class="min-w-0">' +
-            '<div class="text-[11px] font-semibold text-slate-800 truncate">' + escapeHtml(d.name || d.id) + '</div>' +
+            '<div class="flex items-center gap-1 min-w-0">' +
+              '<span class="text-[11px] font-semibold text-slate-800 truncate">' + escapeHtml(d.name || d.id) + '</span>' +
+              (applied ? '<span class="text-[9px] px-1 rounded bg-emerald-500/15 text-emerald-700 border border-emerald-500/30 shrink-0">已应用</span>' : '') +
+            '</div>' +
             '<div class="text-[9px] text-slate-500 mt-0.5 font-mono">' + escapeHtml(fmtTime(d.createdAt)) +
               ' · ' + escapeHtml(d.colorSpace || '?') +
               (d.widthMm ? ' · ' + d.widthMm + '×' + d.heightMm + 'mm' : '') +
               (flags.length ? ' · ' + flags.join('/') : '') + '</div>' +
           '</div>' +
-          '<button data-act="apply" class="glass-btn-primary text-[10px] px-2 py-0.5 font-medium shrink-0">应用</button>' +
+          '<button data-act="apply" class="glass-btn-primary text-[10px] px-2 py-0.5 font-medium shrink-0' +
+            (applied ? ' opacity-50 pointer-events-none' : '') + '">' +
+            (applied ? '已应用 ✓' : '应用') + '</button>' +
         '</div></div>';
     }).join('');
   }
@@ -271,6 +279,22 @@
         importInput.value = '';
       });
       importBtn._pgWired = true;
+    }
+
+    /* 草稿列表自动刷新：面板存在时每 30s 轮询一次，复用刷新按钮的链路
+     * （ping → renderServerStatus → refreshDrafts）。本项目无组件销毁场景，
+     * 定时器随页面存活，不做清理 API；draftPollTimer 非空即拒绝重复启动（防叠加）。
+     * 无请求堆积：fetchJson 自带 2.5s 超时；服务离线时 ping() 失败 →
+     * serverOnline=false → refreshDrafts() 只重绘离线文案、不发 listDrafts 请求，
+     * 单轮回调最多 1~2 个短超时请求，30s 间隔远大于超时，必然收敛。 */
+    var pollListEl = el('ingestDraftList');
+    if (pollListEl && !draftPollTimer) {
+      draftPollTimer = setInterval(function () {
+        ping().then(function () {
+          renderServerStatus();
+          refreshDrafts();
+        });
+      }, 30000);
     }
 
     renderIngestSummary();
