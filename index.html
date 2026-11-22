@@ -6397,8 +6397,8 @@
         <tr>
           <td class="p-2.5 font-bold text-slate-800">7. CIEDE2000 色差评测 (Colorimetry ΔE₀₀)</td>
           <td class="p-2.5 text-slate-500">ΔE₀₀ ≤ 1.50 (ISO 12647-2)</td>
-          <td class="p-2.5 font-mono text-emerald-600">ΔE₀₀ 1.14 (工业级匹配)</td>
-          <td class="p-2.5"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-700">通过 (PASS)</span></td>
+          <td id="reportDeltaEPeakCell" class="p-2.5 font-mono text-slate-400">ΔE₀₀ --</td>
+          <td class="p-2.5"><span id="reportDeltaEBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/20 text-slate-600">待测 (WAIT)</span></td>
         </tr>
         <tr>
           <td class="p-2.5 font-bold text-slate-800">8. 工业条码与 BWR 墨水补偿 (GS1 & BWR)</td>
@@ -6407,6 +6407,34 @@
           <td class="p-2.5"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-700">通过 (PASS)</span></td>
         </tr>
       `;
+
+      // Row 7 audit: real pixel-level CIEDE2000 peak from #proofingCanvas (replaces hard-coded ΔE₀₀ 1.14)
+      const deltaEAudit = computeCanvasDeltaEAudit();
+      const deltaECell = document.getElementById('reportDeltaEPeakCell');
+      const deltaEBadge = document.getElementById('reportDeltaEBadge');
+      if (deltaECell) {
+        if (deltaEAudit) {
+          const de = deltaEAudit.deltaE;
+          const evalLabel = deltaEAudit.evaluation && deltaEAudit.evaluation.labelZh
+            ? deltaEAudit.evaluation.labelZh
+            : (de <= 1.5 ? '优秀' : de <= 2.5 ? '合格' : '超标');
+          deltaECell.textContent = `ΔE₀₀ ${de.toFixed(2)} · ${evalLabel}`; /* labelZh 自带括号，用间隔号避免双层嵌套 */
+          deltaECell.className = `p-2.5 font-mono ${de <= 1.5 ? 'text-emerald-600' : de <= 2.5 ? 'text-amber-600' : 'text-rose-500'}`;
+        } else {
+          deltaECell.textContent = 'ΔE₀₀ N/A（画布跨域受限）';
+          deltaECell.className = 'p-2.5 font-mono text-slate-400';
+        }
+      }
+      if (deltaEBadge) {
+        if (deltaEAudit) {
+          const de = deltaEAudit.deltaE;
+          deltaEBadge.textContent = de <= 1.5 ? '通过 (PASS)' : de <= 2.5 ? '合格 (WARN)' : '超标 (FAIL)';
+          deltaEBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold ${de <= 1.5 ? 'bg-emerald-500/20 text-emerald-700' : de <= 2.5 ? 'bg-amber-500/20 text-amber-700' : 'bg-rose-500/20 text-rose-600'}`;
+        } else {
+          deltaEBadge.textContent = '跳过 (SKIP)';
+          deltaEBadge.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/20 text-slate-600';
+        }
+      }
 
       reportModal.classList.remove('hidden');
     });
@@ -6432,8 +6460,65 @@
       showToast('印前体检报告已归档至工业制造生产日志 (JDF/XJDF)。');
     });
 
+    /* ----------------------------------------------------
+     * Real-Pixel CIEDE2000 Peak Audit (打样画布网格采样)
+     * Replaces the former hard-coded delta_e_peak: 1.14 —
+     * feeds both this JSON export and the report modal row 7.
+     * ---------------------------------------------------- */
+    function computeCanvasDeltaEAudit() {
+      if (typeof PrintGuardColor === 'undefined' || !canvas || !ctx) return null;
+      try {
+        // Backing store == CSS size × devicePixelRatio (resizeCanvas()), the same
+        // mapping the densitometer HUD uses: CSS px × dpr → canvas pixel space.
+        const w = canvas.width;
+        const h = canvas.height;
+        if (!w || !h) return null;
+        const primaries = PrintGuardColor.FOGRA39_PRIMARIES;
+        if (!primaries) return null;
+        const refs = [];
+        for (const pKey in primaries) {
+          const p = primaries[pKey];
+          if (p && typeof p.L === 'number') refs.push([p.L, p.a, p.b]);
+        }
+        if (!refs.length) return null;
+        // Throws on a cross-origin tainted canvas → caught below, audit N/A
+        const pxData = ctx.getImageData(0, 0, w, h).data;
+        const GRID_STEPS = 24; // 24×24 uniform grid over the full canvas
+        let peakDeltaE = 0;
+        let validSamples = 0;
+        let worstLab = null;
+        let worstRef = null;
+        for (let gy = 0; gy < GRID_STEPS; gy++) {
+          const py = Math.min(h - 1, Math.floor(((gy + 0.5) / GRID_STEPS) * h));
+          for (let gx = 0; gx < GRID_STEPS; gx++) {
+            const pxX = Math.min(w - 1, Math.floor(((gx + 0.5) / GRID_STEPS) * w));
+            const idx = (py * w + pxX) * 4;
+            if (pxData[idx + 3] < 255) continue; // Skip non-fully-opaque pixels
+            const lab = PrintGuardColor.srgbToLab({ r: pxData[idx], g: pxData[idx + 1], b: pxData[idx + 2] }, 'D50');
+            let minDe = Infinity;
+            let minRef = null;
+            for (let ri = 0; ri < refs.length; ri++) {
+              const de = PrintGuardColor.ciede2000(lab, refs[ri]);
+              if (de < minDe) { minDe = de; minRef = refs[ri]; }
+            }
+            if (minDe > peakDeltaE) { peakDeltaE = minDe; worstLab = lab; worstRef = minRef; }
+            validSamples++;
+          }
+        }
+        if (!validSamples || !worstLab) return null;
+        const comp = PrintGuardColor.compareColors(worstLab, worstRef);
+        return { deltaE: peakDeltaE, samples: validSamples, evaluation: comp ? comp.evaluation : null };
+      } catch (err) {
+        return null; // Cross-origin tainted canvas or engine failure → audit unavailable
+      }
+    }
+
     // JSON Preflight Data Export
     document.getElementById('downloadJsonBtn').addEventListener('click', () => {
+      const deltaEAudit = computeCanvasDeltaEAudit();
+      const deltaERating = deltaEAudit
+        ? (deltaEAudit.deltaE <= 1.5 ? 'PASS' : deltaEAudit.deltaE <= 2.5 ? 'WARN' : 'FAIL')
+        : 'SKIP';
       const data = {
         application: "PrintGuard Pro Prepress Workstation",
         standard: "ISO 12647-2 / Fogra39",
@@ -6457,8 +6542,9 @@
           ciede2000_audit: {
             formula: "CIEDE2000 (ISO/CIE 11664-6)",
             standard_target: "ISO 12647-2 / Fogra39",
-            delta_e_peak: 1.14,
-            tolerance_rating: "PASS"
+            delta_e_peak: deltaEAudit ? Number(deltaEAudit.deltaE.toFixed(2)) : 'n/a',
+            tolerance_rating: deltaERating,
+            samples_audited: deltaEAudit ? deltaEAudit.samples : 0
           }
         }
       };

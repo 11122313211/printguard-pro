@@ -170,14 +170,40 @@
   }
 
   /* ------------------------------------------------------------------
+   * 快照内容判定（纯函数，Node 可测）
+   * ------------------------------------------------------------------ */
+  /* 参与内容比对的字段：与 app-store.js 的 STATE_FIELDS 对齐，
+     剔除视图状态 zoom/pan（不算工作内容）与大字段 _artworkDataUrl/_dxfRawText（单独短路处理） */
+  var CONTENT_FIELDS = [
+    'preset', 'isRgbFixed', 'isOverprintBlack', 'isTacFixed', 'isOutlined',
+    'isGlueCleaned', 'bleedMm', 'misregistrationMm', 'trapMode', 'activePlate',
+    'isPlateMonochrome', 'showTacHeatmap', 'layers',
+    'foldAngleDeg', 'barcode', 'customImageName', 'customDxfName'
+  ];
+
+  /* 判断 snap 相对全新默认快照 baseSnap 是否存在工作内容差异：
+     大字段（base64）禁止 stringify，任一侧为真值即视为有内容直接短路；
+     其余字段用 JSON.stringify 值相等逐个比较（稳妥处理 barcode/layers 嵌套对象与数字类型）。 */
+  function snapshotHasContent(snap, baseSnap) {
+    if (!snap || !baseSnap || typeof snap !== 'object' || typeof baseSnap !== 'object') return false;
+    if (snap._artworkDataUrl || baseSnap._artworkDataUrl ||
+        snap._dxfRawText || baseSnap._dxfRawText) return true;
+    for (var i = 0; i < CONTENT_FIELDS.length; i++) {
+      var k = CONTENT_FIELDS[i];
+      if (JSON.stringify(snap[k]) !== JSON.stringify(baseSnap[k])) return true;
+    }
+    return false;
+  }
+
+  /* ------------------------------------------------------------------
    * 恢复提示横幅（玻璃浮层，含动作按钮）
    * ------------------------------------------------------------------ */
   function promptRestore() {
     if (!deps) return;
     deps.Store.getAutosave().then(function (rec) {
       if (!rec || !rec.snapshot) return;
-      var hasContent = rec.snapshot._artworkDataUrl || rec.snapshot._dxfRawText ||
-        rec.snapshot.isRgbFixed || rec.snapshot.preset !== 'reverse_tuck' || rec.snapshot.foldAngleDeg !== 90;
+      /* init 时用户尚未操作，此刻 makeSnapshot() 即全新默认状态基线 */
+      var hasContent = snapshotHasContent(rec.snapshot, deps.makeSnapshot ? deps.makeSnapshot() : null);
       if (!hasContent) return; /* 纯初始状态不打扰 */
 
       var banner = document.createElement('div');
@@ -245,6 +271,7 @@
   root.PrintGuardAppUI = {
     init: init,
     refreshProjectList: refreshProjectList,
-    saveCurrentAsProject: saveCurrentAsProject
+    saveCurrentAsProject: saveCurrentAsProject,
+    snapshotHasContent: snapshotHasContent
   };
 })(typeof self !== 'undefined' ? self : this);
