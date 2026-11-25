@@ -24,6 +24,7 @@
   <script src="./module_ink_estimator.js"></script>
   <script src="./module_caliper_kerf.js"></script>
   <script src="./module_dxf_folder.js"></script>
+  <script src="./module_preflight_explainer.js"></script>
   <!-- Persistence Store (UMD, 供主脚本包装 state) -->
   <script src="./js/app-store.js"></script>
 
@@ -1215,7 +1216,7 @@
 
   <!-- ================= 3. PREFLIGHT COMPLIANCE REPORT MODAL ================= -->
   <div id="reportModal" class="fixed inset-0 bg-slate-900/35 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
-    <div class="glass-modal w-full max-w-2xl overflow-hidden anim-scale-in flex flex-col max-h-[90vh]">
+    <div class="glass-modal w-full max-w-3xl overflow-hidden anim-scale-in flex flex-col max-h-[90vh]">
       <div class="p-4 border-b border-brandBorder flex items-center justify-between bg-white/60">
         <div class="flex items-center space-x-2.5">
           <div class="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-600 flex items-center justify-center border border-emerald-500/30">
@@ -1259,6 +1260,30 @@
               <!-- Populated dynamically -->
             </tbody>
           </table>
+        </div>
+
+        <!-- 人话解释层与自动/人工修正安全分级（离线规则模板 + 预留 LLM 替换接口） -->
+        <div id="reportExplanationSection" class="p-3.5 bg-white/70 rounded-xl border border-brandBorder space-y-3 font-sans">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center space-x-2">
+              <strong class="text-slate-900 text-xs">人话解释与处置分级</strong>
+              <span id="reportExplainerSourceBadge" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">规则模板 · 离线可用</span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button id="reportSafeAutoFixBtn" type="button" class="text-[11px] px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition disabled:opacity-40 disabled:cursor-not-allowed" title="仅执行不改变客户设计外观的安全工艺修正，绝不擅自改色/转曲/动版面">
+                仅一键执行可安全自动修正
+              </button>
+              <button id="copyPlainExplainBtn" type="button" class="text-[11px] px-2.5 py-1 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-brandBorder font-medium transition">
+                复制给客户的通俗清单
+              </button>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 text-[11px]">
+            <span id="reportSafeAutoCount" class="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 border border-emerald-500/30 font-semibold">可安全自动修正：0 项</span>
+            <span id="reportHumanConfirmCount" class="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-800 border border-amber-500/35 font-semibold">必须人工/客户确认：0 项</span>
+          </div>
+          <p id="reportPlainSummary" class="text-[11px] text-slate-700 leading-relaxed bg-slate-50/90 border border-slate-200/80 rounded-lg p-2.5"></p>
+          <div id="reportExplanationList" class="space-y-2.5"></div>
         </div>
 
         <div class="p-3 bg-white/60 rounded-xl border border-brandBorder text-slate-700 text-[11px] leading-relaxed">
@@ -6329,9 +6354,142 @@
      * Preflight Compliance Report Modal Logic
      * ---------------------------------------------------- */
     const reportModal = document.getElementById('reportModal');
-    document.getElementById('openReportBtn').addEventListener('click', () => {
+    let latestExplainedReport = null;
+    let reportExplainSeq = 0;
+
+    function escExplainHtml(str) {
+      return String(str == null ? '' : str).replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[ch]);
+    }
+
+    function buildPreflightExplainContext(deltaEAudit, tacAudit, quietZoneAudit) {
+      return {
+        preset: state.preset,
+        isRgbFixed: !!state.isRgbFixed,
+        isOverprintBlack: !!state.isOverprintBlack,
+        isTacFixed: !!state.isTacFixed,
+        isOutlined: !!state.isOutlined,
+        isGlueCleaned: !!state.isGlueCleaned,
+        bleedMm: state.bleedMm,
+        bwrMm: (state.barcode && typeof state.barcode.bwrMm === 'number') ? state.barcode.bwrMm : 0.025,
+        deltaEAudit: deltaEAudit,
+        tacAudit: tacAudit,
+        quietZoneAudit: quietZoneAudit
+      };
+    }
+
+    function renderPreflightExplanations(explained) {
+      latestExplainedReport = explained;
+      const section = document.getElementById('reportExplanationSection');
+      if (!section || !explained) return;
+
+      const sourceBadge = document.getElementById('reportExplainerSourceBadge');
+      if (sourceBadge) {
+        if (explained.source === 'llm') {
+          sourceBadge.textContent = `LLM · ${explained.provider}`;
+          sourceBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-700 border border-indigo-500/30';
+        } else if (explained.source === 'rule_template_fallback') {
+          sourceBadge.textContent = '规则模板（LLM 异常自动回退）';
+          sourceBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-800 border border-amber-500/30';
+        } else {
+          sourceBadge.textContent = '规则模板 · 离线可用（已预留 LLM 接口）';
+          sourceBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200';
+        }
+      }
+
+      const safeCountEl = document.getElementById('reportSafeAutoCount');
+      const humanCountEl = document.getElementById('reportHumanConfirmCount');
+      const safeBtn = document.getElementById('reportSafeAutoFixBtn');
+      const safeCount = explained.counts ? explained.counts.safeAutoFix : 0;
+      const humanCount = explained.counts ? explained.counts.humanConfirmRequired : 0;
+      if (safeCountEl) safeCountEl.textContent = `可安全自动修正：${safeCount} 项`;
+      if (humanCountEl) humanCountEl.textContent = `必须人工/客户确认：${humanCount} 项`;
+      if (safeBtn) {
+        safeBtn.disabled = safeCount === 0;
+        safeBtn.textContent = safeCount > 0 ? `仅一键执行可安全自动修正 (${safeCount})` : '无可安全自动修正项';
+      }
+
+      const summaryEl = document.getElementById('reportPlainSummary');
+      if (summaryEl) summaryEl.textContent = explained.summaryText || '';
+
+      const listEl = document.getElementById('reportExplanationList');
+      if (!listEl) return;
+
+      const renderCard = (it) => {
+        const isSafe = it.autoFixable;
+        const isPass = it.status === 'PASS';
+        const tierBadge = isPass
+          ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-700 border border-emerald-500/25">已通过</span>'
+          : (isSafe
+            ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-700 border border-emerald-500/30">可安全自动修正</span>'
+            : '<span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-800 border border-amber-500/35">必须人工/客户确认</span>');
+        const statusBadge = it.status === 'PASS'
+          ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-500/15 text-emerald-700">PASS</span>'
+          : (it.status === 'FAIL'
+            ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-rose-500/15 text-rose-600">FAIL</span>'
+            : (it.status === 'WARN'
+              ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-500/15 text-amber-700">WARN</span>'
+              : '<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-500/15 text-slate-600">SKIP</span>'));
+        const actionBtn = (isSafe && it.fixActionId)
+          ? `<button type="button" data-safe-fix="${escExplainHtml(it.fixActionId)}" class="text-[10px] px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium shrink-0 transition">安全应用</button>`
+          : (!isPass && it.status !== 'SKIP'
+            ? '<span class="text-[10px] text-amber-700 shrink-0">不自动改稿</span>'
+            : '');
+        return `
+          <div class="p-2.5 rounded-lg border ${isPass ? 'bg-white/50 border-slate-200/70' : (isSafe ? 'bg-emerald-50/40 border-emerald-200/80' : 'bg-amber-50/50 border-amber-200/80')} space-y-1">
+            <div class="flex flex-wrap items-center justify-between gap-1.5">
+              <div class="flex items-center flex-wrap gap-1.5">
+                <span class="font-bold text-slate-800 text-[11px]">${escExplainHtml(it.title)}</span>
+                ${statusBadge}
+                ${tierBadge}
+              </div>
+              ${actionBtn}
+            </div>
+            <div class="text-[11px] text-slate-700 leading-relaxed space-y-0.5">
+              <div><strong class="text-slate-900">是什么问题：</strong>${escExplainHtml(it.what)}</div>
+              <div><strong class="text-slate-900">不改会怎样：</strong>${escExplainHtml(it.impact)}</div>
+              <div><strong class="text-slate-900">建议怎么改：</strong>${escExplainHtml(it.suggestion)}</div>
+            </div>
+          </div>
+        `;
+      };
+
+      const blocks = [];
+      const humanItems = (explained.buckets && explained.buckets.human_confirm_required) || [];
+      const safeItems = (explained.buckets && explained.buckets.safe_auto_fix) || [];
+      const doneItems = (explained.buckets && explained.buckets.passed_or_skipped) || [];
+
+      if (humanItems.length) {
+        blocks.push(`
+          <div class="space-y-1.5">
+            <div class="text-[11px] font-bold text-amber-800">一、必须人工 / 客户确认（${humanItems.length} 项 · 涉及偏色、字体或版面构图，严禁静默自动修改）</div>
+            ${humanItems.map(renderCard).join('')}
+          </div>
+        `);
+      }
+      if (safeItems.length) {
+        blocks.push(`
+          <div class="space-y-1.5">
+            <div class="text-[11px] font-bold text-emerald-800">二、可安全自动修正（${safeItems.length} 项 · 确定性印前工艺规范，不改变设计外观）</div>
+            ${safeItems.map(renderCard).join('')}
+          </div>
+        `);
+      }
+      if (doneItems.length) {
+        blocks.push(`
+          <details class="rounded-lg border border-slate-200/80 bg-white/50 p-2">
+            <summary class="cursor-pointer text-[11px] font-semibold text-slate-600 select-none">查看已通过 / 跳过项通俗说明（${doneItems.length} 项）</summary>
+            <div class="mt-2 space-y-1.5">${doneItems.map(renderCard).join('')}</div>
+          </details>
+        `);
+      }
+      listEl.innerHTML = blocks.join('');
+    }
+
+    function refreshPreflightReportModal() {
       document.getElementById('reportTimestamp').textContent = new Date().toLocaleString('zh-CN');
-      
+
       let score = 45;
       if (state.isRgbFixed) score += 12;
       if (state.isOverprintBlack) score += 15;
@@ -6351,7 +6509,7 @@
           noteEl.textContent = `刀模线 CutContour 确认为 100% 叠印专色属性，粘胶位脱墨完成，小字全量直压杜绝套印露白，墨量峰值经实测审计，限额 ${state.isTacFixed ? 280 : 340}% 受控。文件已达到 CTP 直接制版及印刷上机投产标准！`;
           noteEl.className = 'mt-1 text-emerald-700';
         } else {
-          noteEl.textContent = '注意：当前文档仍存在阻断性印前缺陷（偏色/露白/粘胶污染/墨量超标），直接制版存在高报废风险，建议点击一键全合规修复或按项修复后重新体检。';
+          noteEl.textContent = '注意：当前文档仍存在阻断性印前缺陷（偏色/露白/粘胶污染/墨量超标），直接制版存在高报废风险，建议优先执行「可安全自动修正」项，并将「必须人工/客户确认」项发给设计师或客户确认后重新体检。';
           noteEl.className = 'mt-1 text-amber-700';
         }
       }
@@ -6495,8 +6653,89 @@
         }
       }
 
+      // 人话解释层：先同步输出本地规则模板结果（零延迟离线可用），若已注册 LLM Provider 再异步增强
+      if (typeof PrintGuardExplainer !== 'undefined') {
+        const explainCtx = buildPreflightExplainContext(deltaEAudit, tacAudit, quietZoneAudit);
+        const ruleExplained = PrintGuardExplainer.explainReport(explainCtx);
+        renderPreflightExplanations(ruleExplained);
+        if (PrintGuardExplainer.getLlmProvider && PrintGuardExplainer.getLlmProvider()) {
+          const seq = ++reportExplainSeq;
+          PrintGuardExplainer.explainReportAsync(explainCtx).then((enhanced) => {
+            if (seq === reportExplainSeq && !reportModal.classList.contains('hidden')) {
+              renderPreflightExplanations(enhanced);
+            }
+          });
+        }
+      }
+    }
+
+    document.getElementById('openReportBtn').addEventListener('click', () => {
+      refreshPreflightReportModal();
       reportModal.classList.remove('hidden');
     });
+
+    // 仅执行「可安全自动修正」类别（绝不触碰 RGB/活字转曲/ΔE/静区等需人工确认项）
+    const reportSafeAutoFixBtn = document.getElementById('reportSafeAutoFixBtn');
+    if (reportSafeAutoFixBtn) {
+      reportSafeAutoFixBtn.addEventListener('click', () => {
+        if (!latestExplainedReport || !latestExplainedReport.buckets) return;
+        const safeItems = latestExplainedReport.buckets.safe_auto_fix || [];
+        if (!safeItems.length) return;
+        const applied = [];
+        safeItems.forEach((it) => {
+          if (it.id === 'overprint_black' && !state.isOverprintBlack) {
+            state.isOverprintBlack = true;
+            applied.push('纯黑直压');
+          } else if (it.id === 'tac_limit' && !state.isTacFixed) {
+            state.isTacFixed = true;
+            applied.push('UCR 控墨');
+          } else if (it.id === 'glue_tab' && !state.isGlueCleaned) {
+            state.isGlueCleaned = true;
+            applied.push('粘口脱墨');
+          }
+        });
+        if (applied.length) {
+          updatePreflightUI();
+          updateHealthScore();
+          renderWorkbench();
+          refreshPreflightReportModal();
+          showToast(`已仅执行可安全自动修正：${applied.join('、')}（需人工/客户确认项已保留原样）`, 'success');
+        }
+      });
+    }
+
+    // 单条「安全应用」快捷按钮委托
+    const reportExplainListEl = document.getElementById('reportExplanationList');
+    if (reportExplainListEl) {
+      reportExplainListEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-safe-fix]');
+        if (!btn) return;
+        const targetId = btn.getAttribute('data-safe-fix');
+        const targetBtn = targetId && document.getElementById(targetId);
+        if (targetBtn) {
+          targetBtn.click();
+          refreshPreflightReportModal();
+        }
+      });
+    }
+
+    // 一键复制面向客户/业务员的通俗整改清单
+    const copyPlainExplainBtn = document.getElementById('copyPlainExplainBtn');
+    if (copyPlainExplainBtn) {
+      copyPlainExplainBtn.addEventListener('click', () => {
+        if (typeof PrintGuardExplainer === 'undefined' || !latestExplainedReport) return;
+        const text = PrintGuardExplainer.formatPlainTextReport(latestExplainedReport);
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          navigator.clipboard.writeText(text).then(() => {
+            showToast('已复制通俗预检清单，可直接发给设计师或客户确认。', 'success');
+          }).catch(() => {
+            showToast('剪贴板受限，请直接导出 JSON 报告或手动选中复制。', 'info');
+          });
+        } else {
+          showToast('当前环境不支持自动剪贴板，请导出 JSON 报告查看完整人话清单。', 'info');
+        }
+      });
+    }
 
     document.getElementById('closeReportBtn').addEventListener('click', () => {
       reportModal.classList.add('hidden');
@@ -6650,6 +6889,13 @@
       const quietZoneAudit = computeBarcodeQuietZoneAudit();
       // 独立触发点：TAC 峰值审计随导出重算（与上方 ΔE/静区同风格，不共享缓存）
       const tacAuditExport = computeTacAudit();
+      const explainedExport = (typeof PrintGuardExplainer !== 'undefined')
+        ? PrintGuardExplainer.toJsonExportPayload(
+            PrintGuardExplainer.explainReport(
+              buildPreflightExplainContext(deltaEAudit, tacAuditExport, quietZoneAudit)
+            )
+          )
+        : null;
       const data = {
         application: "PrintGuard Pro Prepress Workstation",
         standard: "ISO 12647-2 / Fogra39",
@@ -6680,7 +6926,8 @@
             tolerance_rating: deltaERating,
             samples_audited: deltaEAudit ? deltaEAudit.samples : 0
           }
-        }
+        },
+        ...(explainedExport ? { human_explanations: explainedExport } : {})
       };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);

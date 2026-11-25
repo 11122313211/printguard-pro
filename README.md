@@ -104,7 +104,10 @@
 * **红外 TAC 热力透视与一键 UCR 降墨**：峰值墨量从 340% 一键平滑压制到 280% 安全限值。
 * **一键文字纯矢量转曲**：彻底消除缺字体印刷事故。
 * **糊盒粘胶位 15mm 自动脱墨**：确保热熔胶与水性胶牢固附着。
-* **双模预检报告输出**：交互式网页模态框体检评级 + 符合 ISO 12647-2 工业标准的机读格式化 JSON 报告导出；报告中的 ΔE₀₀ 峰值、TAC 峰值（解除管线钳制的实测值）、GS1 静区/BWR 均由打样画布与检测引擎实时计算，画布跨域受限或引擎缺失时按 N/A + 跳过 (SKIP) 优雅降级，无任何硬编码演示值。
+* **双模预检报告输出与「人话解释层」**：
+  - 核心解释模块：[`module_preflight_explainer.js`](file:///e:/包装印刷工作台/module_preflight_explainer.js)（零依赖离线规则模板引擎，预留可插拔 LLM 适配接口 `registerLlmProvider` / `explainReportAsync` / `createOpenAICompatibleProvider`）；
+  - 交互式网页模态框体检评级 + 符合 ISO 12647-2 工业标准的机读格式化 JSON 报告导出（附带 `human_explanations` 字段）；报告中的 ΔE₀₀ 峰值、TAC 峰值（解除管线钳制的实测值）、GS1 静区/BWR 均由打样画布与检测引擎实时计算，画布跨域受限或引擎缺失时按 N/A + 跳过 (SKIP) 优雅降级，无任何硬编码演示值；
+  - 每条预检结论自动生成「是什么问题 → 不改印出来会怎样 → 建议怎么改」三段式通俗解释，并严格区分**「可安全自动修正」**（纯黑直压、UCR 控墨、糊盒粘口除墨）与**「必须人工/客户确认」**（RGB 转色、未转曲活字、ΔE₀₀ 偏色、GS1 条码静区不足等）两类处置权限——LLM 接口仅允许润色人话文案，严禁篡改门禁状态与处置分级，异常时自动回退规则模板。
 
 ---
 
@@ -206,6 +209,7 @@ e:\包装印刷工作台\
 ├── module_ink_estimator.js     # 模块 5: CIP3/PPF 32 墨区分析与四色耗墨量估算
 ├── module_caliper_kerf.js      # 模块 6: 数显卡尺与模切刀缝/CITO 压痕工艺计算
 ├── module_dxf_folder.js        # 模块 7: 任意刀线通用折叠引擎 (面邻接图/铰链树/3D 运动学)
+├── module_preflight_explainer.js # 模块 8: 预检报告「人话解释层」与安全自动/人工确认分级引擎（预留 LLM 接口）
 ├── server.py                   # ingest 接收服务 (静态托管 + POST /api/ingest + drop 目录监视)
 ├── adobe/
 │   ├── host.jsx                # Illustrator 桥接库 (文档提取/合成 DXF/草稿落盘/ScriptUI)
@@ -248,6 +252,9 @@ node js/app-store.js
 
 # 6. 运行通用折叠引擎测试 (面片提取/铰链树/90° 角点闭合/perf 铰链语义角 11 项)
 node module_dxf_folder.js
+
+# 7. 运行预检「人话解释层」与 LLM 适配防篡改自测 (13 项通过)
+node module_preflight_explainer.js
 ```
 
 ### 3. 启动 Illustrator 桥接（AI 插件链路）

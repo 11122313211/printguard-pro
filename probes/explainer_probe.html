@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>EXPLAINER_PROBE_RUNNING</title></head>
+<body style="margin:0">
+<iframe id="f" src="http://127.0.0.1:8787/index.html" style="width:1440px;height:900px;border:0"></iframe>
+<pre id="results">[]</pre>
+<script>
+'use strict';
+/* P0-#1 预检人话解释层与自动/人工修正分级探针 */
+var f = document.getElementById('f');
+var out = [];
+var probeStarted = false;
+function t(name, pass, detail) {
+  out.push({ name: name, pass: !!pass, detail: String(detail || '') });
+  document.getElementById('results').textContent = JSON.stringify(out);
+}
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function click(el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
+
+function exportJson(w) {
+  return new Promise(function (resolve) {
+    var d = w.document;
+    var captured = null;
+    var origCreate = w.URL.createObjectURL;
+    w.URL.createObjectURL = function (blob) { captured = blob; return origCreate.call(w.URL, blob); };
+    var origAnchorClick = w.HTMLAnchorElement.prototype.click;
+    w.HTMLAnchorElement.prototype.click = function () {
+      if (this.hasAttribute && this.hasAttribute('download')) return;
+      return origAnchorClick.apply(this, arguments);
+    };
+    click(d.getElementById('downloadJsonBtn'));
+    setTimeout(function () {
+      w.URL.createObjectURL = origCreate;
+      w.HTMLAnchorElement.prototype.click = origAnchorClick;
+      if (!captured) { resolve(null); return; }
+      var fr = new f.contentWindow.FileReader();
+      fr.onload = function () { try { resolve(JSON.parse(String(fr.result))); } catch (e) { resolve(null); } };
+      fr.onerror = function () { resolve(null); };
+      fr.readAsText(captured);
+    }, 400);
+  });
+}
+
+async function run() {
+  try {
+    await sleep(2800);
+    var w = f.contentWindow, d = w.document;
+
+    /* T1: 打开预检报告，验证人话解释层与双级计数正常渲染 */
+    click(d.getElementById('openReportBtn'));
+    await sleep(600);
+    var section = d.getElementById('reportExplanationSection');
+    var summary = (d.getElementById('reportPlainSummary') || {}).textContent || '';
+    var safeBadge = (d.getElementById('reportSafeAutoCount') || {}).textContent || '';
+    var humanBadge = (d.getElementById('reportHumanConfirmCount') || {}).textContent || '';
+    var listText = (d.getElementById('reportExplanationList') || {}).textContent || '';
+    var mSafe = safeBadge.match(/(\d+)/);
+    var mHuman = humanBadge.match(/(\d+)/);
+    t('T1 人话解释层与双级分类正确渲染',
+      !!section && summary.length > 10 &&
+      !!mSafe && Number(mSafe[1]) >= 2 &&
+      !!mHuman && Number(mHuman[1]) >= 2 &&
+      listText.indexOf('是什么问题：') >= 0 &&
+      listText.indexOf('不改会怎样：') >= 0 &&
+      listText.indexOf('建议怎么改：') >= 0,
+      'safe=' + safeBadge + ' human=' + humanBadge);
+
+    /* T2: 点击「仅一键执行可安全自动修正」，安全项清零但人工确认项仍被保留拦截 */
+    var humanBefore = mHuman ? Number(mHuman[1]) : 0;
+    click(d.getElementById('reportSafeAutoFixBtn'));
+    await sleep(500);
+    var safeAfter = ((d.getElementById('reportSafeAutoCount') || {}).textContent || '').match(/(\d+)/);
+    var humanAfter = ((d.getElementById('reportHumanConfirmCount') || {}).textContent || '').match(/(\d+)/);
+    t('T2 仅执行安全自动修正且不触碰人工确认项',
+      !!safeAfter && Number(safeAfter[1]) === 0 &&
+      !!humanAfter && Number(humanAfter[1]) === humanBefore && humanBefore >= 2,
+      'safeAfter=' + (safeAfter && safeAfter[1]) + ' humanBefore=' + humanBefore + ' humanAfter=' + (humanAfter && humanAfter[1]));
+
+    /* T3: JSON 导出携带 human_explanations 与逐项三段式字段 */
+    var j = await exportJson(w);
+    var he = j && j.human_explanations;
+    t('T3 JSON 导出含完整 human_explanations 结构',
+      !!he && he.source === 'rule_template' &&
+      Array.isArray(he.items) && he.items.length === 8 &&
+      he.counts && he.counts.safe_auto_fix === 0 && he.counts.human_confirm_required >= 2 &&
+      he.items.every(function (x) { return x.what && x.impact && x.suggestion && x.action_tier; }),
+      'counts=' + JSON.stringify(he && he.counts));
+
+    /* T4: 预留 LLM 接口热替换生效且不篡改分级 */
+    w.PrintGuardExplainer.registerLlmProvider({
+      name: 'probe-mock-llm',
+      explainReport: async function () {
+        return {
+          summaryText: '【Mock LLM】检测到必须人工确认项，请与客户核对后再制版。',
+          items: [{ id: 'rgb_color_space', actionTier: 'safe_auto_fix', what: 'Mock LLM RGB 解释' }]
+        };
+      }
+    });
+    click(d.getElementById('openReportBtn'));
+    await sleep(500);
+    var srcText = (d.getElementById('reportExplainerSourceBadge') || {}).textContent || '';
+    var sumAfterLlm = (d.getElementById('reportPlainSummary') || {}).textContent || '';
+    var humanAfterLlm = ((d.getElementById('reportHumanConfirmCount') || {}).textContent || '').match(/(\d+)/);
+    w.PrintGuardExplainer.clearLlmProvider();
+    t('T4 LLM 适配接口可热替换文案且门禁分级防篡改',
+      srcText.indexOf('probe-mock-llm') >= 0 &&
+      sumAfterLlm.indexOf('Mock LLM') >= 0 &&
+      !!humanAfterLlm && Number(humanAfterLlm[1]) === humanBefore,
+      'src="' + srcText + '" human=' + (humanAfterLlm && humanAfterLlm[1]));
+  } catch (e) {
+    t('EXCEPTION', false, e && (e.stack || e.message));
+  }
+  document.getElementById('results').textContent = JSON.stringify(out, null, 1);
+  var pass = out.every(function (r) { return r.pass; });
+  document.title = pass ? 'EXPLAINER_PROBE_PASS' : 'EXPLAINER_PROBE_FAIL';
+}
+f.onload = function () {
+  if (probeStarted) return;
+  probeStarted = true;
+  run();
+};
+</script>
+</body>
+</html>

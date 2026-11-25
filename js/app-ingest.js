@@ -167,6 +167,29 @@
       return;
     }
     var rows = buildCheckRows({ doc: lastApplied.doc, checks: lastApplied.checks });
+    var plainTipsHtml = '';
+    if (typeof root.PrintGuardExplainer !== 'undefined') {
+      var exp = root.PrintGuardExplainer.explainIngestDraft({ doc: lastApplied.doc, checks: lastApplied.checks });
+      var actionItems = (exp.buckets && exp.buckets.human_confirm_required || []).concat(exp.buckets && exp.buckets.safe_auto_fix || []);
+      if (actionItems.length) {
+        plainTipsHtml =
+          '<div class="mt-2 pt-2 border-t border-slate-200/70 space-y-1.5">' +
+          '<div class="text-[10px] font-semibold text-slate-700">通俗解释与处置建议</div>' +
+          actionItems.map(function (it) {
+            var tierCls = it.autoFixable
+              ? 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30'
+              : 'bg-amber-500/15 text-amber-800 border-amber-500/30';
+            return '<div class="p-1.5 rounded bg-white/60 border border-slate-200/80 text-[10px] leading-relaxed">' +
+              '<div class="flex items-center justify-between gap-1 mb-0.5">' +
+                '<span class="font-semibold text-slate-800">' + escapeHtml(it.title) + '</span>' +
+                '<span class="px-1.5 py-0.2 rounded border text-[9px] shrink-0 ' + tierCls + '">' + escapeHtml(it.actionTierLabel) + '</span>' +
+              '</div>' +
+              '<div class="text-slate-600">' + escapeHtml(it.summary) + '</div>' +
+            '</div>';
+          }).join('') +
+          '</div>';
+      }
+    }
     box.innerHTML =
       '<div class="text-[10px] text-slate-400 font-mono mb-1">' + escapeHtml(lastApplied.doc.name || lastApplied.id) +
       ' · ' + escapeHtml(fmtTime(lastApplied.appliedAt)) + '</div>' +
@@ -174,7 +197,7 @@
         return '<div class="flex items-start gap-1.5 text-[10px] leading-relaxed">' +
           '<span class="' + (r.ok ? 'text-emerald-600' : 'text-amber-600') + ' shrink-0">' + (r.ok ? '✓' : '!') + '</span>' +
           '<span class="' + (r.ok ? 'text-slate-600' : 'text-amber-700') + '">' + escapeHtml(r.text) + '</span></div>';
-      }).join('');
+      }).join('') + plainTipsHtml;
   }
 
   function renderDraftList(drafts) {
