@@ -29,35 +29,34 @@
   --ink-2: #475569;   /* 次级 slate-600 */
   --ink-3: #64748b;   /* 弱化 slate-500 */
 
-  /* ---- 品牌强调（浅底加深版） ---- */
-  --accent-cyan: #0891b2;
-  --accent-cyan-strong: #0e7490;
+  /* ---- 品牌强调（工业克制青蓝 + 语义状态色） ---- */
+  --accent-cyan: #0284c7;
+  --accent-cyan-strong: #0369a1;
   --accent-magenta: #db2777;
   --accent-gold: #d97706;
   --accent-indigo: #4f46e5;
   --accent-green: #059669;
 
-/* ---- 工程网格（浅玻璃上的淡墨线，与整体纯玻璃风格统一） ---- */
-  --cad-grid-minor: rgba(15, 23, 42, 0.055);
-  --cad-grid-major: rgba(8, 145, 178, 0.14);
+  /* ---- 工程网格（审色低干扰淡灰线，让印稿与刀模成为绝对主角） ---- */
+  --cad-grid-minor: rgba(15, 23, 42, 0.032);
+  --cad-grid-major: rgba(15, 23, 42, 0.072);
 
-  --radius-card: 14px;
-  --radius-btn: 10px;
+  --radius-card: 12px;
+  --radius-btn: 8px;
 
   --font-ui: 'Inter', -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
 }
 
 /* ====================================================================
- * 1. 浅色极光背景（固定视口，多光晕渐层）
+ * 1. 中性审色浅色工业工作台背景（低饱和柔光，不干扰印前辨色）
  * ==================================================================== */
 body.aurora-light {
-  background-color: #eef2f8;
+  background-color: #eef2f6;
   background-image:
-    radial-gradient(ellipse 62% 48% at 12% 8%,  rgba(191, 219, 254, 0.75) 0%, rgba(191, 219, 254, 0) 60%),
-    radial-gradient(ellipse 55% 42% at 88% 12%, rgba(221, 214, 254, 0.72) 0%, rgba(221, 214, 254, 0) 62%),
-    radial-gradient(ellipse 58% 46% at 78% 92%, rgba(207, 250, 254, 0.68) 0%, rgba(207, 250, 254, 0) 60%),
-    radial-gradient(ellipse 48% 40% at 18% 88%, rgba(254, 215, 226, 0.5) 0%, rgba(254, 215, 226, 0) 62%);
+    radial-gradient(ellipse 70% 50% at 15% 0%, rgba(224, 242, 254, 0.52) 0%, rgba(224, 242, 254, 0) 60%),
+    radial-gradient(ellipse 60% 45% at 88% 8%, rgba(226, 232, 240, 0.55) 0%, rgba(226, 232, 240, 0) 62%),
+    radial-gradient(ellipse 65% 50% at 50% 100%, rgba(241, 245, 249, 0.72) 0%, rgba(241, 245, 249, 0) 65%);
   background-attachment: fixed;
   color: var(--ink-1);
 }
@@ -391,6 +390,306 @@ button:focus-visible {
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* ====================================================================
- * 8. 备注：A4 质检证书的 @media print 规则保留在 index.html 内联
+ * 8. 精密工作台扩展组件：天头 / 分段工具条 / 右侧检视停靠栏 / 自由缩放手柄 / 报告分页
+ * ==================================================================== */
+
+/* 顶栏与二级画布工具条统一不折行约束 */
+.pg-nowrap-bar {
+  white-space: nowrap;
+}
+.pg-nowrap-bar button,
+.pg-nowrap-bar select {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 分段控件槽（画布检测工具组 / 缩放组 / 报告标签页） */
+.pg-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: rgba(15, 23, 42, 0.055);
+  border: 1px solid rgba(15, 23, 42, 0.07);
+}
+.pg-seg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #475569;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pg-seg-btn:hover {
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.65);
+}
+.pg-seg-btn.is-active {
+  color: var(--accent-cyan-strong);
+  background: #ffffff;
+  border-color: rgba(2, 132, 199, 0.28);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  font-weight: 600;
+}
+
+/* 2D 与右侧检视栏之间的竖向拖拽分隔条 */
+.pg-resizer-x {
+  width: 7px;
+  flex-shrink: 0;
+  position: relative;
+  cursor: col-resize;
+  z-index: 25;
+  background: transparent;
+  transition: background 0.15s ease;
+  user-select: none;
+}
+.pg-resizer-x::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.1);
+  transition: width 0.15s ease, background 0.15s ease;
+}
+.pg-resizer-x::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 36px;
+  border-radius: 99px;
+  transform: translate(-50%, -50%);
+  background: rgba(100, 116, 139, 0.35);
+  transition: background 0.15s ease, height 0.15s ease;
+}
+.pg-resizer-x:hover::after,
+.pg-resizer-x.is-dragging::after {
+  width: 2px;
+  background: var(--accent-cyan);
+}
+.pg-resizer-x:hover::before,
+.pg-resizer-x.is-dragging::before {
+  background: var(--accent-cyan);
+  height: 52px;
+}
+
+/* 右侧检视栏内：3D 视口与探针之间的横向拖拽分隔条 */
+.pg-resizer-y {
+  height: 7px;
+  flex-shrink: 0;
+  position: relative;
+  cursor: row-resize;
+  z-index: 20;
+  background: rgba(248, 250, 252, 0.65);
+  user-select: none;
+}
+.pg-resizer-y::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+  background: rgba(15, 23, 42, 0.1);
+  transition: height 0.15s ease, background 0.15s ease;
+}
+.pg-resizer-y::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 36px;
+  height: 3px;
+  border-radius: 99px;
+  transform: translate(-50%, -50%);
+  background: rgba(100, 116, 139, 0.35);
+  transition: background 0.15s ease, width 0.15s ease;
+}
+.pg-resizer-y:hover::after,
+.pg-resizer-y.is-dragging::after {
+  height: 2px;
+  background: var(--accent-cyan);
+}
+.pg-resizer-y:hover::before,
+.pg-resizer-y.is-dragging::before {
+  background: var(--accent-cyan);
+  width: 56px;
+}
+
+/* 右侧检视停靠栏（Right Inspector Dock） */
+.pg-right-dock {
+  background: rgba(255, 255, 255, 0.86);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  backdrop-filter: blur(22px) saturate(150%);
+  border-left: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: -4px 0 24px rgba(15, 23, 42, 0.05);
+  display: flex;
+  flex-direction: column;
+  min-width: 280px;
+  overflow: hidden;
+}
+.pg-right-dock.is-collapsed {
+  display: none !important;
+}
+
+/* 3D 视口停靠态 vs 自由浮窗态 */
+#pip3dContainer.is-docked {
+  position: relative !important;
+  inset: auto !important;
+  width: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  flex: 1 1 0%;
+  min-height: 200px;
+}
+#pip3dContainer.is-floating {
+  position: absolute;
+  z-index: 35;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  box-shadow: 0 20px 50px -12px rgba(15, 23, 42, 0.28), 0 4px 16px rgba(15, 23, 42, 0.08);
+}
+
+/* 浮窗自由缩放手柄（仅浮窗态显示） */
+.pg-resize-handle {
+  display: none;
+  position: absolute;
+  z-index: 40;
+}
+.is-floating > .pg-resize-handle {
+  display: block;
+}
+.pg-resize-handle[data-resize="nw"] { top: 0; left: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+.pg-resize-handle[data-resize="ne"] { top: 0; right: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+.pg-resize-handle[data-resize="sw"] { bottom: 0; left: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+.pg-resize-handle[data-resize="se"] {
+  bottom: 0; right: 0; width: 14px; height: 14px; cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 52%, rgba(2, 132, 199, 0.45) 52%, rgba(2, 132, 199, 0.45) 64%, transparent 64%, transparent 76%, rgba(2, 132, 199, 0.65) 76%);
+  border-bottom-right-radius: 12px;
+}
+.pg-resize-handle[data-resize="w"] { top: 12px; bottom: 12px; left: 0; width: 5px; cursor: ew-resize; }
+.pg-resize-handle[data-resize="e"] { top: 12px; bottom: 12px; right: 0; width: 5px; cursor: ew-resize; }
+.pg-resize-handle[data-resize="n"] { left: 12px; right: 12px; top: 0; height: 5px; cursor: ns-resize; }
+.pg-resize-handle[data-resize="s"] { left: 12px; right: 12px; bottom: 0; height: 5px; cursor: ns-resize; }
+
+/* 3D 视口专业摄影棚背景 */
+.pg-studio-viewport {
+  background: radial-gradient(ellipse 85% 75% at 50% 42%, #f4f7fb 0%, #e4ebf4 65%, #d9e2ee 100%);
+}
+
+/* 分光光度计探针：停靠态 vs 浮窗态 & 自适应通道网格 */
+#densitometerHud {
+  container-type: inline-size;
+  container-name: pg-hud;
+}
+#densitometerHud.is-docked {
+  position: relative !important;
+  inset: auto !important;
+  width: 100% !important;
+  max-width: none !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: rgba(248, 250, 252, 0.92) !important;
+  flex-shrink: 0;
+}
+#densitometerHud.is-floating {
+  position: absolute;
+  z-index: 32;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  box-shadow: 0 14px 36px -8px rgba(15, 23, 42, 0.24);
+  background: rgba(255, 255, 255, 0.92);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+.pg-hud-channels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+@container pg-hud (min-width: 390px) {
+  .pg-hud-channels {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+.pg-ch-cell {
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 7px;
+  padding: 4px 5px 5px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.pg-ch-cell::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--ch-color, #94a3b8);
+}
+
+/* 预检报告分页标签栏 */
+.pg-report-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.055);
+  border: 1px solid rgba(15, 23, 42, 0.07);
+}
+.pg-report-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.14s ease;
+  white-space: nowrap;
+}
+.pg-report-tab:hover {
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.6);
+}
+.pg-report-tab.is-active {
+  color: var(--accent-cyan-strong);
+  background: #ffffff;
+  border-color: rgba(2, 132, 199, 0.25);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+/* ====================================================================
+ * 9. 备注：A4 质检证书的 @media print 规则保留在 index.html 内联
  *    （目标 #auditCertificateModal / #certificatePrintArea，与打印结构强耦合）
  * ==================================================================== */

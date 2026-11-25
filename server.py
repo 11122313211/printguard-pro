@@ -15,7 +15,9 @@
  启动：python server.py  （默认 127.0.0.1:8787，--port 可改）
 ===================================================================="""
 import argparse
+import base64
 import errno
+import io
 import json
 import os
 import re
@@ -24,6 +26,7 @@ import socket
 import sys
 import threading
 import time
+import urllib.parse
 import uuid
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -160,6 +163,70 @@ def watch_drop_folder(interval=1.0):
         time.sleep(interval)
 
 
+def _pdf_render_available():
+    try:
+        import pypdfium2  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def render_pdf_bytes(pdf_bytes, page_index=0, dpi=200, max_dim=2200):
+    """使用 pypdfium2 将真实 PDF 页面光栅化为 PNG，并提取真实物理毫米尺寸（pt -> mm）。"""
+    import pypdfium2 as pdfium
+    if not pdf_bytes or not pdf_bytes.lstrip().startswith(b"%PDF"):
+        raise ValueError("上传的文件不是有效的 PDF 文档")
+    doc = pdfium.PdfDocument(pdf_bytes)
+    try:
+        page_count = len(doc)
+        if page_count <= 0:
+            raise ValueError("PDF 文档不包含任何页面")
+        idx = max(0, min(int(page_index or 0), page_count - 1))
+        page = doc[idx]
+        try:
+            w_pt, h_pt = page.get_size()
+            width_mm = round(float(w_pt) * 25.4 / 72.0, 2)
+            height_mm = round(float(h_pt) * 25.4 / 72.0, 2)
+            # 按目标 DPI 缩放并限制最大像素边长，兼顾清晰度与浏览器纹理显存
+            scale = max(0.5, min(float(dpi or 200) / 72.0, 4.5))
+            if max(w_pt, h_pt) * scale > max_dim:
+                scale = max_dim / max(w_pt, h_pt, 1.0)
+            bitmap = page.render(scale=scale)
+            try:
+                pil_img = bitmap.to_pil()
+                if pil_img.mode not in ("RGB", "RGBA"):
+                    pil_img = pil_img.convert("RGB")
+                buf = io.BytesIO()
+                pil_img.save(buf, format="PNG", optimize=True)
+                png_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+                return {
+                    "ok": True,
+                    "pageCount": page_count,
+                    "pageIndex": idx,
+                    "widthMm": width_mm,
+                    "heightMm": height_mm,
+                    "pixelWidth": pil_img.width,
+                    "pixelHeight": pil_img.height,
+                    "dpi": round(scale * 72.0),
+                    "dataUrl": "data:image/png;base64," + png_b64,
+                }
+            finally:
+                try:
+                    bitmap.close()
+                except Exception:
+                    pass
+        finally:
+            try:
+                page.close()
+            except Exception:
+                pass
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+
 # ------------------------------------------------------------------
 # HTTP Handler
 # ------------------------------------------------------------------
@@ -192,6 +259,7 @@ class IngestHandler(SimpleHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path == "/api/ping":
             self._json(200, {"ok": True, "service": "printguard-ingest", "drafts": len(_DRAFTS),
+                             "pdfRenderSupported": _pdf_render_available(),
                              "serverTime": int(time.time() * 1000)})
             return
         if path == "/api/drafts":
@@ -217,9 +285,46 @@ class IngestHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
-        path = self.path.split("?", 1)[0]
+        parsed = urllib.parse.urlsplit(self.path)
+        path = parsed.path
+        if path == "/api/render-pdf":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = 0
+            if length <= 0 or length > MAX_BODY:
+                self._json(400, {"error": "PDF 请求体为空或超过 %dMB 上限" % (MAX_BODY // 1048576)})
+                return
+            raw = self.rfile.read(length)
+            qs = urllib.parse.parse_qs(parsed.query)
+            page_idx = int((qs.get("page") or ["0"])[0] or 0)
+            dpi = int((qs.get("dpi") or ["200"])[0] or 200)
+            ctype = (self.headers.get("Content-Type") or "").lower()
+            try:
+                if "application/json" in ctype:
+                    payload = json.loads(raw.decode("utf-8"))
+                    b64 = str(payload.get("pdfBase64") or "")
+                    if "," in b64:
+                        b64 = b64.split(",", 1)[1]
+                    pdf_bytes = base64.b64decode(b64)
+                    if "page" in payload:
+                        page_idx = int(payload.get("page") or 0)
+                    if "dpi" in payload:
+                        dpi = int(payload.get("dpi") or 200)
+                else:
+                    pdf_bytes = raw
+                result = render_pdf_bytes(pdf_bytes, page_index=page_idx, dpi=dpi)
+                self._json(200, result)
+            except ImportError:
+                self._json(501, {"error": "本机未安装 pypdfium2，无法在服务端渲染 PDF"})
+            except ValueError as exc:
+                self._json(400, {"error": str(exc)})
+            except Exception as exc:
+                self._json(500, {"error": "PDF 渲染失败: %s" % exc})
+            return
+
         if path != "/api/ingest":
-            self._json(404, {"error": "未知接口，仅支持 POST /api/ingest"})
+            self._json(404, {"error": "未知接口，仅支持 POST /api/ingest 或 POST /api/render-pdf"})
             return
         try:
             length = int(self.headers.get("Content-Length") or 0)

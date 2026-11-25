@@ -642,7 +642,10 @@
 
     function makeMaterial(face) {
       if (texture) {
-        var m = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.82, metalness: 0.02, side: THREE.DoubleSide });
+        if (THREE.sRGBEncoding && texture.encoding !== THREE.sRGBEncoding) {
+          texture.encoding = THREE.sRGBEncoding;
+        }
+        var m = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.72, metalness: 0.02, side: THREE.DoubleSide });
         disposables.push(m);
         return m;
       }
