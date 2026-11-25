@@ -4,6 +4,15 @@ backup/
 # 工具会话目录
 .zcode/
 .mimosa/
+.video_agent/
+
+# 编辑器与操作系统缓存
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
 
 # E2E 验证临时件
 _e2e.html
@@ -14,7 +23,8 @@ _pg_*.html
 ingest_drafts/
 ingest_drop/
 
-# 工具插件缓存指针
-.video_agent/
-# Python 编译缓存
+# Python 编译与虚拟环境缓存
 __pycache__/
+*.pyc
+.venv/
+venv/

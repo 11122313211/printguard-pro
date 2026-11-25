@@ -1,0 +1,4 @@
+# PrintGuard Pro Python 后端可选依赖
+# 说明：server.py 的静态托管与 Adobe Illustrator Ingest 接收服务纯标准库零依赖，
+# 安装下方 pypdfium2 后可自动解锁 POST /api/render-pdf 真实 PDF 毫米级 200 DPI 无损导入与软打样能力。
+pypdfium2>=4.0.0
