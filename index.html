@@ -25,6 +25,8 @@
   <script src="./module_caliper_kerf.js"></script>
   <script src="./module_dxf_folder.js"></script>
   <script src="./module_preflight_explainer.js"></script>
+  <script src="./module_workshop_bridge.js"></script>
+  <script src="./module_waste_predictor.js"></script>
   <!-- Persistence Store (UMD, 供主脚本包装 state) -->
   <script src="./js/app-store.js"></script>
 
@@ -1284,6 +1286,106 @@
           </div>
           <p id="reportPlainSummary" class="text-[11px] text-slate-700 leading-relaxed bg-slate-50/90 border border-slate-200/80 rounded-lg p-2.5"></p>
           <div id="reportExplanationList" class="space-y-2.5"></div>
+        </div>
+
+        <!-- 跨项目联动：Color Workshop 工艺护照指纹门禁与专色色域校验 -->
+        <div id="reportWorkshopSection" class="p-3.5 bg-white/70 rounded-xl border border-brandBorder space-y-2.5 font-sans">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center space-x-2">
+              <strong class="text-slate-900 text-xs">Color Workshop 工艺护照门禁联动</strong>
+              <span id="workshopConnBadge" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">未连接</span>
+            </div>
+            <div class="flex items-center space-x-1.5">
+              <input id="workshopUrlInput" type="text" value="http://127.0.0.1:8765" class="glass-input text-[11px] font-mono px-2 py-1 w-44" placeholder="http://127.0.0.1:8765" />
+              <button id="workshopConnectBtn" type="button" class="text-[11px] px-2.5 py-1 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-brandBorder font-medium transition">连接工艺库</button>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <select id="workshopProcessSelect" class="glass-select text-[11px] py-1 px-2 flex-1 min-w-[200px]">
+              <option value="">-- 请先点击「连接工艺库」选择目标工艺 --</option>
+            </select>
+            <button id="workshopGateCheckBtn" type="button" class="text-[11px] px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition disabled:opacity-40 disabled:cursor-not-allowed" disabled>
+              校验工艺护照门禁
+            </button>
+          </div>
+          <div id="reportWorkshopGateResult" class="text-[11px] text-slate-500 bg-slate-50/90 border border-slate-200/80 rounded-lg p-2.5 leading-relaxed">
+            选择目标工艺后，可将本份机读 JSON 预检报告直接提交给 Color Workshop 校验工艺护照指纹（ICC 一致性）与专色色域；导出的 JSON 也会自动携带所选工艺护照指纹。
+          </div>
+        </div>
+
+        <!-- P1-#5 损耗预测（CIP3 墨区估算延伸 + 工单复杂度 + EMA 实际回填偏差） -->
+        <div id="reportWasteSection" class="p-3.5 bg-white/70 rounded-xl border border-brandBorder space-y-2.5 font-sans">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center space-x-2">
+              <strong class="text-slate-900 text-xs">损耗预测与历史偏差学习（CIP3 墨区 + EMA）</strong>
+              <span id="wasteEmaBadge" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">EMA 待激活（0/2 单）</span>
+            </div>
+            <span id="wasteInkMetricsChip" class="text-[10px] font-mono text-slate-500">CIP3 覆盖 --</span>
+          </div>
+
+          <!-- 工单复杂度参数 -->
+          <div class="grid grid-cols-3 gap-2 text-[11px]">
+            <label class="space-y-1">
+              <span class="text-slate-500 block text-[10px]">计划印数（张）</span>
+              <input id="wasteRunInput" type="number" min="100" max="5000000" step="500" value="10000" class="glass-input w-full text-[11px] font-mono px-2 py-1" />
+            </label>
+            <label class="space-y-1">
+              <span class="text-slate-500 block text-[10px]">印刷色数</span>
+              <select id="wasteColorsSelect" class="glass-select w-full text-[11px] py-1 px-2">
+                <option value="4" selected>4 色（CMYK）</option>
+                <option value="5">5 色（CMYK + 1 专色）</option>
+                <option value="6">6 色（CMYK + 2 专色）</option>
+                <option value="7">7 色（ECG / 多专色）</option>
+              </select>
+            </label>
+            <label class="space-y-1">
+              <span class="text-slate-500 block text-[10px]">承印材质</span>
+              <select id="wasteSubstrateSelect" class="glass-select w-full text-[11px] py-1 px-2">
+                <option value="fbb">白卡纸 (FBB)</option>
+                <option value="matte">哑粉/铜版纸</option>
+                <option value="kraft">牛皮/瓦楞纸</option>
+                <option value="metallic">镭射银卡/金箔</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-700">
+            <span class="text-[10px] text-slate-500">印后工艺：</span>
+            <label class="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" class="waste-pp-cb" value="die_cut" checked />模切压痕</label>
+            <label class="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" class="waste-pp-cb" value="gluing" checked />自动糊盒</label>
+            <label class="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" class="waste-pp-cb" value="lamination" />覆膜</label>
+            <label class="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" class="waste-pp-cb" value="spot_uv" />局部 UV</label>
+            <label class="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" class="waste-pp-cb" value="foil_stamping" />烫金/银</label>
+            <label class="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" class="waste-pp-cb" value="emboss" />击凸/压凹</label>
+          </div>
+
+          <!-- 预估损耗区间结果卡 -->
+          <div id="wastePredictionCard" class="p-2.5 rounded-lg bg-slate-50/90 border border-slate-200/80 space-y-1">
+            <div class="flex flex-wrap items-baseline justify-between gap-2">
+              <div>
+                <span class="text-[10px] text-slate-500">预估损耗率区间：</span>
+                <strong id="wasteRangeText" class="text-sm font-mono text-indigo-700">--% ~ --%</strong>
+                <span id="wasteMidText" class="text-[11px] font-mono text-slate-600 ml-1">（中值 --% · 约 -- 张）</span>
+              </div>
+            </div>
+            <div id="wasteBreakdownText" class="text-[10px] text-slate-500 leading-relaxed"></div>
+          </div>
+
+          <!-- 历史工单实际损耗回填与「预估 vs 实际」偏差 -->
+          <div class="pt-2 border-t border-slate-200/70 space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <span class="text-[11px] font-semibold text-slate-800">历史工单实际损耗回填（预估 vs 实际偏差）</span>
+              <button id="wasteResetHistoryBtn" type="button" class="text-[10px] text-slate-500 hover:text-rose-600 underline">清空回填记录</button>
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <input id="wasteBackfillJobNo" type="text" placeholder="工单号（如 J-2026-01）" class="glass-input text-[11px] font-mono px-2 py-1 w-36" />
+              <input id="wasteBackfillActualInput" type="number" min="0" max="80" step="0.1" placeholder="实际损耗率 %" class="glass-input text-[11px] font-mono px-2 py-1 w-28" />
+              <input id="wasteBackfillNote" type="text" placeholder="备注（可选）" class="glass-input text-[11px] px-2 py-1 flex-1 min-w-[110px]" />
+              <button id="wasteBackfillBtn" type="button" class="text-[11px] px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-500 text-white font-medium transition shrink-0">回填并更新 EMA</button>
+            </div>
+            <div id="wasteDeviationSummary" class="text-[10px] text-slate-600 font-mono"></div>
+            <div id="wasteHistoryList" class="space-y-1 max-h-36 overflow-y-auto"></div>
+          </div>
         </div>
 
         <div class="p-3 bg-white/60 rounded-xl border border-brandBorder text-slate-700 text-[11px] leading-relaxed">
@@ -6667,6 +6769,11 @@
           });
         }
       }
+
+      // 损耗预测面板同步刷新（自动抓取当前画布 CIP3 墨区与工单复杂度）
+      if (typeof refreshWastePredictionPanel === 'function') {
+        refreshWastePredictionPanel(true);
+      }
     }
 
     document.getElementById('openReportBtn').addEventListener('click', () => {
@@ -6879,8 +6986,17 @@
       }
     }
 
-    // JSON Preflight Data Export
-    document.getElementById('downloadJsonBtn').addEventListener('click', () => {
+    // JSON Preflight Data Export + Color Workshop 工艺护照门禁联动
+    let workshopCachedProcesses = [];
+    let workshopSelectedBinding = null;
+
+    function getIngestSpotColorsForExport() {
+      if (typeof PrintGuardWorkshopBridge === 'undefined' || typeof PrintGuardAppIngest === 'undefined') return [];
+      const lastDraft = PrintGuardAppIngest.getLastApplied && PrintGuardAppIngest.getLastApplied();
+      return lastDraft ? PrintGuardWorkshopBridge.extractSpotListFromDraft(lastDraft) : [];
+    }
+
+    function buildExportablePreflightJson() {
       const deltaEAudit = computeCanvasDeltaEAudit();
       const deltaERating = deltaEAudit
         ? (deltaEAudit.deltaE <= 1.5 ? 'PASS' : deltaEAudit.deltaE <= 2.5 ? 'WARN' : 'FAIL')
@@ -6896,7 +7012,7 @@
             )
           )
         : null;
-      const data = {
+      let data = {
         application: "PrintGuard Pro Prepress Workstation",
         standard: "ISO 12647-2 / Fogra39",
         timestamp: new Date().toISOString(),
@@ -6929,6 +7045,339 @@
         },
         ...(explainedExport ? { human_explanations: explainedExport } : {})
       };
+      if (typeof PrintGuardWorkshopBridge !== 'undefined') {
+        const spotColors = getIngestSpotColorsForExport();
+        const binding = Object.assign({}, workshopSelectedBinding || {}, spotColors.length ? { spotColors } : {});
+        data = PrintGuardWorkshopBridge.attachPassportMetadata(data, binding);
+      }
+      if (typeof PrintGuardWastePredictor !== 'undefined' && latestWastePrediction) {
+        const devSum = PrintGuardWastePredictor.summarizeDeviation(PrintGuardWastePredictor.loadHistory());
+        data.waste_prediction = {
+          run_impressions: latestWastePrediction.runImpressions,
+          color_count: latestWastePrediction.colorCount,
+          substrate: latestWastePrediction.substrate,
+          postpress: latestWastePrediction.postpress.map((p) => p.id),
+          baseline_rate_pct: latestWastePrediction.baselineRatePct,
+          predicted_rate_pct: latestWastePrediction.predictedRatePct,
+          predicted_waste_sheets: latestWastePrediction.predictedWasteSheets,
+          ink_metrics: latestWastePrediction.inkMetrics,
+          ema_calibration: {
+            applied: devSum.emaApplied,
+            samples: devSum.emaSamples,
+            ema_bias_pct: devSum.emaBiasPct,
+            mae_pct: devSum.maePct,
+            range_hit_rate_pct: devSum.rangeHitRatePct
+          },
+          disclaimer: latestWastePrediction.disclaimer
+        };
+      }
+      return data;
+    }
+
+    // P1-#5 损耗预测面板控制器（CIP3 墨区估算延伸 + 历史工单 EMA 回填）
+    let latestWastePrediction = null;
+    let wastePanelSyncedOnce = false;
+
+    function sampleCurrentInkZoneProfile() {
+      if (typeof InkZoneEstimator === 'undefined') return null;
+      try {
+        const dims = typeof getPresetDimensions === 'function' ? getPresetDimensions() : { totalW: 420, totalH: 297 };
+        const dpr = window.devicePixelRatio || 1;
+        const originX = -dims.totalW / 2;
+        const originY = -dims.totalH / 2;
+        const screenX = (canvas.width / dpr / 2 + state.pan.x + originX * state.zoom) * dpr;
+        const screenY = (canvas.height / dpr / 2 + state.pan.y + originY * state.zoom) * dpr;
+        const screenW = dims.totalW * state.zoom * dpr;
+        const screenH = dims.totalH * state.zoom * dpr;
+        return InkZoneEstimator.analyzeInkZones(canvas, {
+          x: Math.max(0, screenX),
+          y: Math.max(0, screenY),
+          width: Math.min(canvas.width, screenW),
+          height: Math.min(canvas.height, screenH)
+        }, { numZones: 32, sheetWidthMm: dims.totalW });
+      } catch (e) {
+        return InkZoneEstimator.createSimulatedProfile(32);
+      }
+    }
+
+    function readWasteFormParams() {
+      const runEl = document.getElementById('wasteRunInput');
+      const colEl = document.getElementById('wasteColorsSelect');
+      const subEl = document.getElementById('wasteSubstrateSelect');
+      const ppBoxes = document.querySelectorAll('.waste-pp-cb:checked');
+      const postpress = [];
+      ppBoxes.forEach((cb) => postpress.push(cb.value));
+      return {
+        runImpressions: Math.max(100, Number((runEl && runEl.value) || 10000)),
+        colorCount: Number((colEl && colEl.value) || 4),
+        substrate: (subEl && subEl.value) || (state.substrate || 'fbb'),
+        postpress
+      };
+    }
+
+    function refreshWastePredictionPanel(syncFromWorkbench) {
+      if (typeof PrintGuardWastePredictor === 'undefined') return;
+      if (syncFromWorkbench && !wastePanelSyncedOnce) {
+        const subEl = document.getElementById('wasteSubstrateSelect');
+        if (subEl && state.substrate) subEl.value = state.substrate;
+        if (state.preset === 'fefco0427') {
+          const glueCb = document.querySelector('.waste-pp-cb[value="gluing"]');
+          if (glueCb) glueCb.checked = false;
+        }
+        wastePanelSyncedOnce = true;
+      }
+
+      const historyState = PrintGuardWastePredictor.loadHistory();
+      const params = readWasteFormParams();
+      const inkProfile = sampleCurrentInkZoneProfile();
+      const pred = PrintGuardWastePredictor.predictWaste({ ...params, inkProfile }, historyState);
+      latestWastePrediction = pred;
+
+      const devSum = PrintGuardWastePredictor.summarizeDeviation(historyState);
+      const emaBadge = document.getElementById('wasteEmaBadge');
+      if (emaBadge) {
+        if (devSum.emaApplied) {
+          const sign = devSum.emaBiasPct >= 0 ? '+' : '';
+          emaBadge.textContent = `EMA 已激活（${devSum.emaSamples} 单 · 偏置 ${sign}${devSum.emaBiasPct.toFixed(2)}%）`;
+          emaBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-800 border border-teal-500/30';
+        } else {
+          emaBadge.textContent = `EMA 待激活（${devSum.emaSamples}/${PrintGuardWastePredictor.EMA_MIN_N} 单）`;
+          emaBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200';
+        }
+      }
+
+      const inkChip = document.getElementById('wasteInkMetricsChip');
+      if (inkChip) {
+        inkChip.textContent = `CIP3 均覆 ${pred.inkMetrics.avgTotalCoveragePct}% · 峰值 TAC ${pred.inkMetrics.peakTacPct}% · 墨区波动 σ=${pred.inkMetrics.zoneTacStdPct}%`;
+      }
+
+      const rangeEl = document.getElementById('wasteRangeText');
+      const midEl = document.getElementById('wasteMidText');
+      const bdEl = document.getElementById('wasteBreakdownText');
+      if (rangeEl) rangeEl.textContent = `${pred.predictedRatePct.low.toFixed(2)}% ~ ${pred.predictedRatePct.high.toFixed(2)}%`;
+      if (midEl) midEl.textContent = `（中值 ${pred.predictedRatePct.mid.toFixed(2)}% · 约 ${pred.predictedWasteSheets.mid} 张，区间 ${pred.predictedWasteSheets.low}~${pred.predictedWasteSheets.high} 张）`;
+      if (bdEl) {
+        const b = pred.breakdown;
+        const emaPart = b.emaApplied
+          ? ` + EMA 历史偏置 ${b.emaBiasPct >= 0 ? '+' : ''}${b.emaBiasPct.toFixed(2)}%`
+          : '（未启用 EMA 偏置）';
+        bdEl.textContent = `拆解：调机过版 ${b.makereadySheets} 张（${b.makereadyRatePct.toFixed(2)}%）+ 印刷基线 ${b.runningBaseRatePct.toFixed(2)}% + 墨区复杂度 ${b.inkComplexityRatePct.toFixed(2)}% + 印后工艺 ${b.postpressRatePct.toFixed(2)}%（材质系数 ×${b.substrateFactor}）${emaPart}。${pred.disclaimer}`;
+      }
+
+      const sumEl = document.getElementById('wasteDeviationSummary');
+      const listEl = document.getElementById('wasteHistoryList');
+      if (sumEl) {
+        if (!devSum.count) {
+          sumEl.textContent = '尚无历史回填记录。录入生产结束后的真实损耗率后，自动计算「预估 vs 实际」偏差与 EMA 偏置。';
+        } else {
+          const sign = devSum.meanBiasPct >= 0 ? '+' : '';
+          sumEl.textContent = `已回填 ${devSum.count} 单 · MAE ${devSum.maePct.toFixed(2)}% · 平均偏差 ${sign}${devSum.meanBiasPct.toFixed(2)}% · 区间命中率 ${devSum.rangeHitRatePct.toFixed(0)}% · 趋势：${devSum.trendLabel}`;
+        }
+      }
+      if (listEl) {
+        const recs = (historyState.records || []).slice().reverse().slice(0, 8);
+        listEl.innerHTML = recs.map((r) => {
+          const sign = r.deviationPct >= 0 ? '+' : '';
+          const hitBadge = r.withinRange
+            ? '<span class="px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-700 border border-emerald-500/30 text-[9px]">命中区间</span>'
+            : '<span class="px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-800 border border-amber-500/30 text-[9px]">超出区间</span>';
+          const devCls = Math.abs(r.deviationPct) <= 1.0 ? 'text-emerald-700' : (Math.abs(r.deviationPct) <= 2.5 ? 'text-amber-700' : 'text-rose-600');
+          return `
+            <div class="flex flex-wrap items-center justify-between gap-2 px-2 py-1 rounded bg-white/75 border border-slate-200/80 text-[10px] font-mono">
+              <span class="font-semibold text-slate-800">${escExplainHtml(r.jobNo)}</span>
+              <span class="text-slate-500">预估 ${Number(r.predictedMidPct).toFixed(2)}% (${Number(r.predictedLowPct).toFixed(1)}~${Number(r.predictedHighPct).toFixed(1)}%)</span>
+              <span class="text-slate-800">实际 <strong>${Number(r.actualRatePct).toFixed(2)}%</strong></span>
+              <span class="${devCls} font-bold">偏差 ${sign}${Number(r.deviationPct).toFixed(2)}%</span>
+              ${hitBadge}
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    (function wireWastePredictorUI() {
+      if (typeof PrintGuardWastePredictor === 'undefined') return;
+      ['wasteRunInput', 'wasteColorsSelect', 'wasteSubstrateSelect'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', () => refreshWastePredictionPanel(false));
+      });
+      document.querySelectorAll('.waste-pp-cb').forEach((cb) => {
+        cb.addEventListener('change', () => refreshWastePredictionPanel(false));
+      });
+
+      const backfillBtn = document.getElementById('wasteBackfillBtn');
+      if (backfillBtn) {
+        backfillBtn.addEventListener('click', () => {
+          const actualEl = document.getElementById('wasteBackfillActualInput');
+          const jobEl = document.getElementById('wasteBackfillJobNo');
+          const noteEl = document.getElementById('wasteBackfillNote');
+          const actualVal = parseFloat(actualEl ? actualEl.value : '');
+          if (!isFinite(actualVal) || actualVal < 0 || actualVal > 80) {
+            showToast('请输入有效的实际损耗率（0 ~ 80%）。', 'warning');
+            return;
+          }
+          if (!latestWastePrediction) refreshWastePredictionPanel(false);
+          const curHist = PrintGuardWastePredictor.loadHistory();
+          const nextHist = PrintGuardWastePredictor.recordActualWaste(curHist, {
+            jobNo: (jobEl && jobEl.value.trim()) || '',
+            runImpressions: latestWastePrediction.runImpressions,
+            colorCount: latestWastePrediction.colorCount,
+            substrate: latestWastePrediction.substrate,
+            postpress: latestWastePrediction.postpress.map((p) => p.id),
+            baselineMidPct: latestWastePrediction.baselineRatePct.mid,
+            predictedLowPct: latestWastePrediction.predictedRatePct.low,
+            predictedMidPct: latestWastePrediction.predictedRatePct.mid,
+            predictedHighPct: latestWastePrediction.predictedRatePct.high,
+            actualRatePct: actualVal,
+            note: (noteEl && noteEl.value.trim()) || ''
+          });
+          PrintGuardWastePredictor.saveHistory(nextHist);
+          if (actualEl) actualEl.value = '';
+          if (jobEl) jobEl.value = '';
+          if (noteEl) noteEl.value = '';
+          refreshWastePredictionPanel(false);
+          showToast(`已回填实际损耗 ${actualVal.toFixed(2)}%（累计 ${nextHist.n} 单，EMA 偏置 ${nextHist.emaBiasPct >= 0 ? '+' : ''}${nextHist.emaBiasPct.toFixed(2)}%）`, 'success');
+        });
+      }
+
+      const resetBtn = document.getElementById('wasteResetHistoryBtn');
+      if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+          PrintGuardWastePredictor.clearHistory();
+          refreshWastePredictionPanel(false);
+          showToast('已清空损耗回填历史并重置 EMA 偏置。', 'info');
+        });
+      }
+    })();
+
+    function updateWorkshopBindingFromSelection() {
+      const sel = document.getElementById('workshopProcessSelect');
+      const gateBtn = document.getElementById('workshopGateCheckBtn');
+      const urlInput = document.getElementById('workshopUrlInput');
+      const pid = sel ? sel.value : '';
+      const proc = workshopCachedProcesses.find((p) => p.id === pid);
+      if (!proc) {
+        workshopSelectedBinding = null;
+        if (gateBtn) gateBtn.disabled = true;
+        return;
+      }
+      const pp = proc.passport_summary || {};
+      workshopSelectedBinding = {
+        processId: proc.id,
+        processName: proc.name || '',
+        passportId: pp.passport_id || '',
+        passportVersion: pp.version != null ? pp.version : null,
+        passportHash: pp.passport_hash || '',
+        iccSha256: proc.icc_sha256 || '',
+        workshopUrl: urlInput ? urlInput.value : 'http://127.0.0.1:8765'
+      };
+      if (gateBtn) gateBtn.disabled = false;
+    }
+
+    (function wireWorkshopBridgeUI() {
+      if (typeof PrintGuardWorkshopBridge === 'undefined') return;
+      const urlInput = document.getElementById('workshopUrlInput');
+      const connBtn = document.getElementById('workshopConnectBtn');
+      const connBadge = document.getElementById('workshopConnBadge');
+      const sel = document.getElementById('workshopProcessSelect');
+      const gateBtn = document.getElementById('workshopGateCheckBtn');
+      const resultBox = document.getElementById('reportWorkshopGateResult');
+      if (urlInput) urlInput.value = PrintGuardWorkshopBridge.loadWorkshopUrl();
+
+      async function loadWorkshopProcesses() {
+        const baseUrl = PrintGuardWorkshopBridge.saveWorkshopUrl(urlInput ? urlInput.value : '');
+        if (connBadge) {
+          connBadge.textContent = '连接中…';
+          connBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200';
+        }
+        try {
+          const procs = await PrintGuardWorkshopBridge.fetchProcesses(baseUrl, { timeoutMs: 4000 });
+          workshopCachedProcesses = (Array.isArray(procs) ? procs : []).filter((p) => !p.is_archived);
+          if (connBadge) {
+            connBadge.textContent = `已连接 · ${workshopCachedProcesses.length} 个工艺`;
+            connBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 border border-emerald-500/30';
+          }
+          if (sel) {
+            sel.innerHTML = workshopCachedProcesses.length
+              ? workshopCachedProcesses.map((p) => {
+                  const pp = p.passport_summary;
+                  const ppTxt = pp ? `护照 v${pp.version} (${pp.status})` : '无护照';
+                  const iccShort = (p.icc_sha256 || '').slice(0, 8) || '无ICC';
+                  return `<option value="${escExplainHtml(p.id)}">${escExplainHtml(p.name)} · ${escExplainHtml(ppTxt)} · ICC ${escExplainHtml(iccShort)}</option>`;
+                }).join('')
+              : '<option value="">-- 色彩工坊暂无活跃工艺 --</option>';
+          }
+          updateWorkshopBindingFromSelection();
+        } catch (err) {
+          workshopCachedProcesses = [];
+          workshopSelectedBinding = null;
+          if (gateBtn) gateBtn.disabled = true;
+          if (connBadge) {
+            connBadge.textContent = '未连接';
+            connBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-600 border border-rose-500/30';
+          }
+          if (resultBox) {
+            resultBox.innerHTML = `<span class="text-rose-600">无法连接 Color Workshop（${escExplainHtml(baseUrl)}）：${escExplainHtml(err.message)}。请确认已启动色彩工坊服务。</span>`;
+          }
+        }
+      }
+
+      if (connBtn) connBtn.addEventListener('click', loadWorkshopProcesses);
+      if (sel) sel.addEventListener('change', updateWorkshopBindingFromSelection);
+
+      if (gateBtn) {
+        gateBtn.addEventListener('click', async () => {
+          updateWorkshopBindingFromSelection();
+          if (!workshopSelectedBinding) return;
+          const baseUrl = PrintGuardWorkshopBridge.saveWorkshopUrl(urlInput ? urlInput.value : '');
+          gateBtn.disabled = true;
+          gateBtn.textContent = '校验中…';
+          try {
+            const reportData = buildExportablePreflightJson();
+            const res = await PrintGuardWorkshopBridge.submitPreflightToWorkshop(
+              baseUrl,
+              reportData,
+              Object.assign({}, workshopSelectedBinding, { spotColors: getIngestSpotColorsForExport() }),
+              { timeoutMs: 8000 }
+            );
+            const pg = res.passport_gate || {};
+            const ps = res.printguard_summary || {};
+            const allowed = !!(pg.allowed && ps.release_allowed);
+            const badgeHtml = allowed
+              ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-700">门禁放行 (verified)</span>'
+              : '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-600">门禁拦截 (rejected)</span>';
+            const sc = res.spot_check;
+            const scLine = sc && sc.summary
+              ? `<div class="mt-1 text-[10px] text-slate-600">专色色域核验：共 ${sc.summary.total} 个（色域内 ${sc.summary.in_gamut} / 临界 ${sc.summary.borderline} / 超色域 ${sc.summary.out_of_gamut} / 工艺刀线 ${sc.summary.technical}）</div>`
+              : '';
+            const blockersHtml = (ps.blockers && ps.blockers.length)
+              ? `<ul class="mt-1 list-disc list-inside text-[10px] text-rose-600 space-y-0.5">${ps.blockers.map((b) => `<li>${escExplainHtml(b)}</li>`).join('')}</ul>`
+              : '';
+            if (resultBox) {
+              resultBox.innerHTML = `
+                <div class="flex flex-wrap items-center gap-2">
+                  ${badgeHtml}
+                  <span class="font-semibold text-slate-800">${escExplainHtml(pg.message || '已完成预检消费')}</span>
+                </div>
+                ${pg.passport_hash ? `<div class="mt-1 text-[10px] font-mono text-slate-500">护照指纹: ${escExplainHtml(String(pg.passport_hash).slice(0, 16))} · ICC: ${escExplainHtml(String(pg.passport_icc_sha256 || '').slice(0, 16))}</div>` : ''}
+                ${blockersHtml}
+                ${scLine}
+              `;
+            }
+          } catch (err) {
+            if (resultBox) {
+              resultBox.innerHTML = `<span class="text-rose-600">门禁校验失败：${escExplainHtml(err.message)}</span>`;
+            }
+          } finally {
+            gateBtn.disabled = !workshopSelectedBinding;
+            gateBtn.textContent = '校验工艺护照门禁';
+          }
+        });
+      }
+    })();
+
+    document.getElementById('downloadJsonBtn').addEventListener('click', () => {
+      const data = buildExportablePreflightJson();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

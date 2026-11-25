@@ -251,14 +251,33 @@
     info.liveTextCount = liveText;
     info.fonts = fontList.slice(0, 12);
 
-    /* 专色色板 */
+    /* 专色色板（保持 spotSwatches 名称数组兼容，并新增 spotColorDetails 供色彩工坊查色域/ΔE） */
     var spots = [];
+    var spotDetails = [];
     try {
       for (var s = 0; s < doc.swatches.length && spots.length < 16; s++) {
-        if (doc.swatches[s].color && doc.swatches[s].color.typename === 'SpotColor') spots.push(doc.swatches[s].name);
+        if (doc.swatches[s].color && doc.swatches[s].color.typename === 'SpotColor') {
+          var sName = doc.swatches[s].name;
+          spots.push(sName);
+          var detail = { name: sName };
+          try {
+            var sc = doc.swatches[s].color.spot && doc.swatches[s].color.spot.color;
+            if (sc) {
+              if (sc.typename === 'LabColor') {
+                detail.lab = [Math.round(sc.l * 100) / 100, Math.round(sc.a * 100) / 100, Math.round(sc.b * 100) / 100];
+              } else if (sc.typename === 'CMYKColor') {
+                detail.cmyk = [Math.round(sc.cyan * 10) / 10, Math.round(sc.magenta * 10) / 10, Math.round(sc.yellow * 10) / 10, Math.round(sc.black * 10) / 10];
+              } else if (sc.typename === 'RGBColor') {
+                detail.rgb = [Math.round(sc.red), Math.round(sc.green), Math.round(sc.blue)];
+              }
+            }
+          } catch (eSpotVal) { /* 单个专色内部色值读取失败不阻断 */ }
+          spotDetails.push(detail);
+        }
       }
     } catch (eSw) { /* 色板读取失败不致命 */ }
     info.spotSwatches = spots;
+    info.spotColorDetails = spotDetails;
     return info;
   }
 
@@ -306,11 +325,22 @@
       '"heightMm":' + jnum(info.heightMm) + ',' +
       '"artboards":' + info.artboards + ',' +
       '"layers":[' + joinMap(info.layers, jstr) + ']}');
+    function jnumArr(arr) {
+      return '[' + joinMap(arr, jnum) + ']';
+    }
+    function jspotDetail(d) {
+      var segs = ['"name":' + jstr(d.name)];
+      if (d.lab) segs.push('"lab":' + jnumArr(d.lab));
+      if (d.cmyk) segs.push('"cmyk":' + jnumArr(d.cmyk));
+      if (d.rgb) segs.push('"rgb":' + jnumArr(d.rgb));
+      return '{' + segs.join(',') + '}';
+    }
     parts.push('"checks":{' +
       '"liveTextCount":' + info.liveTextCount + ',' +
       '"liveTextTotal":' + info.liveTextTotal + ',' +
       '"fonts":[' + joinMap(info.fonts, jstr) + '],' +
       '"spotSwatches":[' + joinMap(info.spotSwatches, jstr) + '],' +
+      '"spotColorDetails":[' + joinMap(info.spotColorDetails || [], jspotDetail) + '],' +
       '"dielineLayers":{"cut":[' + joinMap(collected.cutLayers, jstr) +
       '],"crease":[' + joinMap(collected.creaseLayers, jstr) + ']},' +
       '"truncated":' + (collected.truncated ? 'true' : 'false') + '}');

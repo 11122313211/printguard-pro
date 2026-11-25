@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>WASTE_PROBE_RUNNING</title></head>
+<body style="margin:0">
+<iframe id="f" src="http://127.0.0.1:8787/index.html" style="width:1440px;height:900px;border:0"></iframe>
+<pre id="results">[]</pre>
+<script>
+'use strict';
+/* P1-#5 损耗预测（CIP3 墨区 + 工单复杂度 + EMA 实际回填偏差）浏览器探针 */
+var f = document.getElementById('f');
+var out = [];
+var probeStarted = false;
+function t(name, pass, detail) {
+  out.push({ name: name, pass: !!pass, detail: String(detail || '') });
+  document.getElementById('results').textContent = JSON.stringify(out);
+}
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function click(el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
+
+function exportJson(w) {
+  return new Promise(function (resolve) {
+    var d = w.document;
+    var captured = null;
+    var origCreate = w.URL.createObjectURL;
+    w.URL.createObjectURL = function (blob) { captured = blob; return origCreate.call(w.URL, blob); };
+    var origAnchorClick = w.HTMLAnchorElement.prototype.click;
+    w.HTMLAnchorElement.prototype.click = function () {
+      if (this.hasAttribute && this.hasAttribute('download')) return;
+      return origAnchorClick.apply(this, arguments);
+    };
+    click(d.getElementById('downloadJsonBtn'));
+    setTimeout(function () {
+      w.URL.createObjectURL = origCreate;
+      w.HTMLAnchorElement.prototype.click = origAnchorClick;
+      if (!captured) { resolve(null); return; }
+      var fr = new f.contentWindow.FileReader();
+      fr.onload = function () { try { resolve(JSON.parse(String(fr.result))); } catch (e) { resolve(null); } };
+      fr.onerror = function () { resolve(null); };
+      fr.readAsText(captured);
+    }, 400);
+  });
+}
+
+function parseMid(d) {
+  var txt = (d.getElementById('wasteMidText') || {}).textContent || '';
+  var m = txt.match(/中值\s*([\d.]+)%/);
+  return m ? parseFloat(m[1]) : NaN;
+}
+
+async function run() {
+  try {
+    await sleep(2800);
+    var w = f.contentWindow, d = w.document;
+
+    /* 清理历史确保从干净状态起测 */
+    if (w.PrintGuardWastePredictor) w.PrintGuardWastePredictor.clearHistory();
+
+    click(d.getElementById('openReportBtn'));
+    await sleep(600);
+
+    /* T1: 初始 CIP3 墨区损耗区间与待激活 EMA 徽章正确显示 */
+    var rangeTxt = (d.getElementById('wasteRangeText') || {}).textContent || '';
+    var chipTxt = (d.getElementById('wasteInkMetricsChip') || {}).textContent || '';
+    var emaTxt = (d.getElementById('wasteEmaBadge') || {}).textContent || '';
+    var baseMid = parseMid(d);
+    t('T1 损耗预估区间与 CIP3 墨区特征正常渲染',
+      /[\d.]+%\s*~\s*[\d.]+%/.test(rangeTxt) &&
+      chipTxt.indexOf('CIP3 均覆') >= 0 &&
+      emaTxt.indexOf('0/2') >= 0 &&
+      !isNaN(baseMid) && baseMid > 1.0,
+      'range="' + rangeTxt + '" mid=' + baseMid + ' ema="' + emaTxt + '"');
+
+    /* T2: 增加工单复杂度（6色 + 烫金 + 局部UV）→ 预估损耗显著上升 */
+    var colSel = d.getElementById('wasteColorsSelect');
+    colSel.value = '6';
+    colSel.dispatchEvent(new Event('change', { bubbles: true }));
+    ['foil_stamping', 'spot_uv'].forEach(function (val) {
+      var cb = d.querySelector('.waste-pp-cb[value="' + val + '"]');
+      if (cb && !cb.checked) {
+        cb.checked = true;
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+    await sleep(300);
+    var complexMid = parseMid(d);
+    t('T2 工单复杂度上升触发预估损耗显著增加',
+      !isNaN(complexMid) && complexMid > baseMid + 2.0,
+      'baseMid=' + baseMid + '% complexMid=' + complexMid + '%');
+
+    /* T3: 连续回填 2 笔高于预估的实际损耗 → 激活 EMA 偏置且展示「预估 vs 实际」偏差 */
+    var targetActual = +(complexMid + 2.5).toFixed(2);
+    for (var i = 1; i <= 2; i++) {
+      d.getElementById('wasteBackfillJobNo').value = 'JOB-00' + i;
+      d.getElementById('wasteBackfillActualInput').value = String(targetActual);
+      click(d.getElementById('wasteBackfillBtn'));
+      await sleep(250);
+    }
+    var emaAfterTxt = (d.getElementById('wasteEmaBadge') || {}).textContent || '';
+    var devSumTxt = (d.getElementById('wasteDeviationSummary') || {}).textContent || '';
+    var histTxt = (d.getElementById('wasteHistoryList') || {}).textContent || '';
+    var calibratedMid = parseMid(d);
+    t('T3 回填 2 笔实际损耗激活 EMA 偏置并展示预估vs实际偏差',
+      emaAfterTxt.indexOf('EMA 已激活') >= 0 &&
+      devSumTxt.indexOf('已回填 2 单') >= 0 &&
+      devSumTxt.indexOf('MAE') >= 0 &&
+      histTxt.indexOf('JOB-002') >= 0 &&
+      histTxt.indexOf('偏差 +') >= 0 &&
+      calibratedMid > complexMid + 0.8,
+      'ema="' + emaAfterTxt + '" before=' + complexMid + '% after=' + calibratedMid + '%');
+
+    /* T4: 导出 JSON 携带 waste_prediction 与 ema_calibration */
+    var j = await exportJson(w);
+    var wp = j && j.waste_prediction;
+    t('T4 JSON 导出含完整 waste_prediction 与 EMA 状态',
+      !!wp && wp.predicted_rate_pct && wp.ema_calibration &&
+      wp.ema_calibration.applied === true &&
+      wp.ema_calibration.samples === 2 &&
+      wp.ema_calibration.ema_bias_pct > 0,
+      'wp=' + JSON.stringify(wp && wp.ema_calibration));
+
+    /* 还原测试历史 */
+    click(d.getElementById('wasteResetHistoryBtn'));
+  } catch (e) {
+    t('EXCEPTION', false, e && (e.stack || e.message));
+  }
+  document.getElementById('results').textContent = JSON.stringify(out, null, 1);
+  var pass = out.every(function (r) { return r.pass; });
+  document.title = pass ? 'WASTE_PROBE_PASS' : 'WASTE_PROBE_FAIL';
+}
+f.onload = function () {
+  if (probeStarted) return;
+  probeStarted = true;
+  run();
+};
+</script>
+</body>
+</html>

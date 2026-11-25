@@ -16,6 +16,10 @@
 
   var deps = null;
   var lastApplied = null;   /* 最近一次应用的草稿摘要（渲染用，不持久化） */
+  var lastSpotCheck = null; /* 最近一次 Color Workshop 专色色域核验结果 */
+  var workshopProcesses = [];
+  var selectedWorkshopProcessId = '';
+  var spotCheckSeq = 0;
   var serverOnline = false;
   var draftPollTimer = null; /* 草稿列表 30s 轮询句柄；非 null 即已启动（init 幂等守卫，同 _pgWired 思路） */
 
@@ -130,10 +134,67 @@
     }
     deps.applySnapshot(snap, true); /* 外部导入：撤销栈断点重置 */
     lastApplied = { id: draft.id, doc: draft.doc || {}, checks: draft.checks || {}, appliedAt: Date.now() };
+    lastSpotCheck = null;
     renderIngestSummary();
     refreshDrafts(); /* 立即刷新草稿列表，让「已应用」徽章即时生效（离线时仅重绘离线文案，无害） */
     deps.showToast('已应用外部草稿「' + ((draft.doc && draft.doc.name) || draft.id) + '」', 'success');
+    /* Illustrator 桥接提取到专色清单时，自动异步去 Color Workshop 查色域内/外与 ΔE */
+    if (typeof root.PrintGuardWorkshopBridge !== 'undefined') {
+      var extractedSpots = root.PrintGuardWorkshopBridge.extractSpotListFromDraft(lastApplied);
+      if (extractedSpots.length) {
+        runWorkshopSpotCheck(lastApplied);
+      }
+    }
     return Promise.resolve(true);
+  }
+
+  function runWorkshopSpotCheck(draft, processIdOverride) {
+    if (typeof root.PrintGuardWorkshopBridge === 'undefined') return Promise.resolve(null);
+    var targetDraft = draft || lastApplied;
+    if (!targetDraft) return Promise.resolve(null);
+    var bridge = root.PrintGuardWorkshopBridge;
+    var spots = bridge.extractSpotListFromDraft(targetDraft);
+    if (!spots.length) return Promise.resolve(null);
+
+    var seq = ++spotCheckSeq;
+    var baseUrl = bridge.loadWorkshopUrl();
+    lastSpotCheck = { loading: true, baseUrl: baseUrl };
+    renderIngestSummary();
+
+    return bridge.fetchProcesses(baseUrl, { timeoutMs: 3500 }).then(function (procs) {
+      if (seq !== spotCheckSeq) return null;
+      workshopProcesses = Array.isArray(procs) ? procs : [];
+      var cmykProcs = workshopProcesses.filter(function (p) {
+        return !p.is_archived && p.icc_meta && p.icc_meta.device_space === 'CMYK';
+      });
+      var pool = cmykProcs.length ? cmykProcs : workshopProcesses.filter(function (p) { return !p.is_archived; });
+      if (!pool.length) {
+        lastSpotCheck = { offline: false, error: 'Color Workshop 中暂无可用工艺，请先新建工艺', baseUrl: baseUrl };
+        renderIngestSummary();
+        return null;
+      }
+      var chosenId = processIdOverride || selectedWorkshopProcessId;
+      if (!chosenId || !pool.some(function (p) { return p.id === chosenId; })) {
+        chosenId = pool[0].id;
+      }
+      selectedWorkshopProcessId = chosenId;
+      return bridge.checkSpotColorsInWorkshop(baseUrl, chosenId, spots, { timeoutMs: 8000 });
+    }).then(function (result) {
+      if (!result || seq !== spotCheckSeq) return result;
+      lastSpotCheck = { loading: false, offline: false, baseUrl: baseUrl, result: result };
+      renderIngestSummary();
+      return result;
+    }).catch(function (err) {
+      if (seq !== spotCheckSeq) return null;
+      lastSpotCheck = {
+        loading: false,
+        offline: true,
+        baseUrl: baseUrl,
+        error: (err && err.message) || '无法连接 Color Workshop'
+      };
+      renderIngestSummary();
+      return null;
+    });
   }
 
   function applyDraftById(id) {
@@ -190,6 +251,61 @@
           '</div>';
       }
     }
+    var spotCheckHtml = '';
+    if (typeof root.PrintGuardWorkshopBridge !== 'undefined') {
+      var spots = root.PrintGuardWorkshopBridge.extractSpotListFromDraft(lastApplied);
+      if (spots.length) {
+        var scBody = '';
+        if (!lastSpotCheck) {
+          scBody = '<div class="text-[10px] text-slate-500">检测到 ' + spots.length + ' 个专色，点击下方按钮去 Color Workshop 查色域与 ΔE₀₀。</div>';
+        } else if (lastSpotCheck.loading) {
+          scBody = '<div class="text-[10px] text-slate-500">正在向 Color Workshop 查询 ' + spots.length + ' 个专色色域与 ΔE₀₀…</div>';
+        } else if (lastSpotCheck.error) {
+          scBody = '<div class="text-[10px] text-amber-700">未连接 Color Workshop（' + escapeHtml(lastSpotCheck.baseUrl || '') + '）：' + escapeHtml(lastSpotCheck.error) + '</div>';
+        } else if (lastSpotCheck.result) {
+          var res = lastSpotCheck.result;
+          var sum = res.summary || {};
+          var procOpts = workshopProcesses.filter(function (p) { return !p.is_archived; }).map(function (p) {
+            return '<option value="' + escapeHtml(p.id) + '"' + (p.id === selectedWorkshopProcessId ? ' selected' : '') + '>' + escapeHtml(p.name) + '</option>';
+          }).join('');
+          scBody =
+            (procOpts ? '<div class="flex items-center gap-1 mb-1"><select id="ingestWorkshopProcSel" class="glass-select text-[10px] py-0.5 px-1.5 flex-1">' + procOpts + '</select></div>' : '') +
+            '<div class="text-[9px] text-slate-500 font-mono mb-1">工艺：' + escapeHtml(res.process_name || res.process_id) +
+              ' · 色域内 ' + (sum.in_gamut || 0) + ' / 临界 ' + (sum.borderline || 0) + ' / 超色域 ' + (sum.out_of_gamut || 0) + '</div>' +
+            (res.items || []).map(function (it) {
+              var badgeCls = it.risk === 'in_gamut'
+                ? 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30'
+                : (it.risk === 'out_of_gamut'
+                  ? 'bg-rose-500/15 text-rose-700 border-rose-500/30'
+                  : (it.risk === 'technical'
+                    ? 'bg-slate-200/70 text-slate-600 border-slate-300'
+                    : 'bg-amber-500/15 text-amber-800 border-amber-500/30'));
+              var badgeTxt = it.risk === 'in_gamut'
+                ? ('色域内 ΔE ' + Number(it.delta_e).toFixed(2))
+                : (it.risk === 'out_of_gamut'
+                  ? (it.delta_e != null ? ('超色域 ΔE ' + Number(it.delta_e).toFixed(2)) : '金属专色')
+                  : (it.risk === 'borderline'
+                    ? ('临界 ΔE ' + Number(it.delta_e).toFixed(2))
+                    : (it.risk === 'technical' ? '工艺/刀线' : '缺色值')));
+              return '<div class="p-1.5 rounded bg-white/65 border border-slate-200/80 text-[10px] leading-snug">' +
+                '<div class="flex items-center justify-between gap-1">' +
+                  '<span class="font-semibold text-slate-800 truncate">' + escapeHtml(it.name) + '</span>' +
+                  '<span class="px-1.5 py-0.2 rounded border text-[9px] font-mono shrink-0 ' + badgeCls + '">' + escapeHtml(badgeTxt) + '</span>' +
+                '</div>' +
+                '<div class="text-[9px] text-slate-600 mt-0.5">' + escapeHtml(it.message) + '</div>' +
+              '</div>';
+            }).join('');
+        }
+        spotCheckHtml =
+          '<div class="mt-2 pt-2 border-t border-slate-200/70 space-y-1.5">' +
+            '<div class="flex items-center justify-between gap-1">' +
+              '<span class="text-[10px] font-semibold text-slate-700">专色色域核验 · Color Workshop</span>' +
+              '<button type="button" id="ingestSpotRecheckBtn" class="text-[9px] px-1.5 py-0.5 rounded bg-white border border-slate-200 hover:border-cyan-500 text-slate-700">重查色域</button>' +
+            '</div>' +
+            scBody +
+          '</div>';
+      }
+    }
     box.innerHTML =
       '<div class="text-[10px] text-slate-400 font-mono mb-1">' + escapeHtml(lastApplied.doc.name || lastApplied.id) +
       ' · ' + escapeHtml(fmtTime(lastApplied.appliedAt)) + '</div>' +
@@ -197,7 +313,22 @@
         return '<div class="flex items-start gap-1.5 text-[10px] leading-relaxed">' +
           '<span class="' + (r.ok ? 'text-emerald-600' : 'text-amber-600') + ' shrink-0">' + (r.ok ? '✓' : '!') + '</span>' +
           '<span class="' + (r.ok ? 'text-slate-600' : 'text-amber-700') + '">' + escapeHtml(r.text) + '</span></div>';
-      }).join('') + plainTipsHtml;
+      }).join('') + plainTipsHtml + spotCheckHtml;
+
+    var recheckBtn = el('ingestSpotRecheckBtn');
+    if (recheckBtn) {
+      recheckBtn.addEventListener('click', function () {
+        var sel = el('ingestWorkshopProcSel');
+        runWorkshopSpotCheck(lastApplied, sel ? sel.value : selectedWorkshopProcessId);
+      });
+    }
+    var procSel = el('ingestWorkshopProcSel');
+    if (procSel) {
+      procSel.addEventListener('change', function () {
+        selectedWorkshopProcessId = procSel.value;
+        runWorkshopSpotCheck(lastApplied, selectedWorkshopProcessId);
+      });
+    }
   }
 
   function renderDraftList(drafts) {
@@ -334,6 +465,9 @@
     applyDraftById: applyDraftById,
     applyDraft: applyDraft,
     refreshDrafts: refreshDrafts,
+    runWorkshopSpotCheck: runWorkshopSpotCheck,
+    getLastApplied: function () { return lastApplied; },
+    getLastSpotCheck: function () { return lastSpotCheck; },
     isServerOnline: function () { return serverOnline; }
   };
 })(typeof self !== 'undefined' ? self : this);

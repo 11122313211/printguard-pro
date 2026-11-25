@@ -141,10 +141,12 @@
 
 ---
 
-### 10. CIP3/PPF 墨区估算 (Ink Zone Estimator)
-> 核心模块：[`module_ink_estimator.js`](file:///e:/包装印刷工作台/module_ink_estimator.js)
-* **32 墨区实测**：对打样画布逐像素取样，按印刷机墨键分区聚合 CMYK 覆盖率；
-* **耗墨量测算**：基于墨膜厚度 1.1μm、油墨密度 1.05 g/cm³ 与 8% 工艺损耗，输出四色公斤级耗墨预估，随预检报告展示。
+### 10. CIP3/PPF 墨区估算与损耗预测（含 EMA 实际偏差学习）
+> 核心模块：[`module_ink_estimator.js`](file:///e:/包装印刷工作台/module_ink_estimator.js) + [`module_waste_predictor.js`](file:///e:/包装印刷工作台/module_waste_predictor.js)
+* **32 墨区实测**：对打样画布逐像素取样，按印刷机墨键分区聚合 CMYK 覆盖率、TAC 峰值与墨区波动标准差；
+* **耗墨量测算**：基于墨膜厚度 1.1μm、油墨密度 1.05 g/cm³ 与 8% 工艺损耗，输出四色公斤级耗墨预估，随预检报告展示；
+* **损耗率区间预测**：结合 CIP3 墨区特征与工单复杂度（计划印数、印刷色数、承印材质、模切/糊盒/覆膜/局部 UV/烫金/击凸等印后工艺），输出「预估损耗率区间（low/mid/high %）」与损耗张数拆解（明确标注为工程估算，非承诺值）；
+* **实际损耗回填与 EMA 校准**：支持回填历史生产工单的实际损耗率，实时展示「预估 vs 实际」偏差、MAE 与区间命中率，并沿用与 `color-workshop` 同构的 EMA 机制（$\alpha = 0.35$、截幅 $\pm 6.0\%$、满 2 单启用）自动校准后续工单预估偏置。
 
 ---
 
@@ -210,6 +212,8 @@ e:\包装印刷工作台\
 ├── module_caliper_kerf.js      # 模块 6: 数显卡尺与模切刀缝/CITO 压痕工艺计算
 ├── module_dxf_folder.js        # 模块 7: 任意刀线通用折叠引擎 (面邻接图/铰链树/3D 运动学)
 ├── module_preflight_explainer.js # 模块 8: 预检报告「人话解释层」与安全自动/人工确认分级引擎（预留 LLM 接口）
+├── module_workshop_bridge.js   # 模块 9: Color Workshop 跨项目桥接（工艺护照指纹门禁 + Illustrator 专色色域/ΔE₀₀ 核验）
+├── module_waste_predictor.js   # 模块 10: CIP3 墨区损耗率区间预测与历史实际损耗 EMA 偏差学习
 ├── server.py                   # ingest 接收服务 (静态托管 + POST /api/ingest + drop 目录监视)
 ├── adobe/
 │   ├── host.jsx                # Illustrator 桥接库 (文档提取/合成 DXF/草稿落盘/ScriptUI)
@@ -255,6 +259,12 @@ node module_dxf_folder.js
 
 # 7. 运行预检「人话解释层」与 LLM 适配防篡改自测 (13 项通过)
 node module_preflight_explainer.js
+
+# 8. 运行 Color Workshop 工艺护照门禁与专色桥接自测 (6 项通过)
+node module_workshop_bridge.js
+
+# 9. 运行 CIP3 损耗预测与 EMA 偏差学习自测 (8 项通过)
+node module_waste_predictor.js
 ```
 
 ### 3. 启动 Illustrator 桥接（AI 插件链路）
