@@ -2,6 +2,8 @@
 
 **工业级印前预检、参数化刀模展开与 2D/3D 单源同步工程打样工作台**
 
+[![CI](https://github.com/11122313211/printguard-pro/actions/workflows/ci.yml/badge.svg)](https://github.com/11122313211/printguard-pro/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-16a34a?style=flat-square)](./LICENSE)
 [![Standards](https://img.shields.io/badge/Standards-ISO%2012647--2%20%7C%20PDF%2FX--4%20%7C%20GS1-0284c7?style=flat-square)](./docs/架构判别报告.md)
 [![Architecture](https://img.shields.io/badge/Frontend-Zero--Build%20SPA%20%7C%20Canvas%202D%20%2B%20Three.js-0f172a?style=flat-square)](./index.html)
 [![Backend](https://img.shields.io/badge/Backend-Python%20Stdlib%20%2B%20pypdfium2%20(Optional)-16a34a?style=flat-square)](./server.py)
@@ -145,12 +147,16 @@ printguard-pro/
 │   └── module_workshop_bridge.js     # Color Workshop 工艺护照门禁与专色色域核验
 ├── adobe/                            # Illustrator ExtendScript 一键提取脚本
 ├── adobe-cep/                        # Illustrator CEP 扩展面板与安装指南
+├── .github/workflows/ci.yml          # GitHub Actions 自动化单元测试工作流（Ubuntu + Node.js 20）
 ├── probes/                           # 7 个浏览器端自动化回归探针（ΔE / HUD / 报告 / 恢复 / 损耗 / Ingest）
 ├── scripts/
 │   └── run-tests.mjs                 # 一键运行全部 Node 核心单元测试
-└── docs/
-    ├── 架构判别报告.md               # 架构演进、技术债与路线图分析
-    └── assets/                       # README 实机预览图资源
+├── docs/
+│   ├── 架构判别报告.md               # 架构演进、技术债与路线图分析
+│   └── assets/                       # README 实机预览图资源
+├── CHANGELOG.md                      # Keep a Changelog 版本演进记录
+├── .editorconfig                     # 跨平台编码、缩进与换行符规范
+└── LICENSE                           # MIT 开源许可证
 ```
 
 ---
@@ -163,7 +169,7 @@ printguard-pro/
 node scripts/run-tests.mjs
 ```
 
-自动依次运行全部 9 个算法自测模块与本地持久化存储层测试（共 10 组套件）。
+自动依次运行全部 9 个算法自测模块与本地持久化存储层测试（共 10 组套件），并由 GitHub Actions（[`.github/workflows/ci.yml`](./.github/workflows/ci.yml)）在每次推送或拉取请求至 `main` 分支时自动在 Ubuntu + Node.js 20 环境执行。
 
 ### 2. 浏览器端回归探针
 
@@ -183,3 +189,10 @@ node scripts/run-tests.mjs
 
 - [架构判别报告](./docs/架构判别报告.md)
 - [Adobe Illustrator CEP 面板安装指南](./adobe-cep/install.md)
+- [更新日志（CHANGELOG.md）](./CHANGELOG.md)
+
+---
+
+## 开源许可
+
+本项目采用 [MIT License](./LICENSE) 开源，详见 `LICENSE` 文件。
